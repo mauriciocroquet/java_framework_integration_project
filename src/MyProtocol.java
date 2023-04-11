@@ -57,7 +57,7 @@ public class MyProtocol{
         // Routing and addressing stage
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
 
-        boolean complete = false;
+        boolean complete = false; // comment trial
 
         while(!complete){
             // flooding for routing
