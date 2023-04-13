@@ -1,13 +1,9 @@
 import client.*;
-import org.w3c.dom.ls.LSOutput;
 
 import java.nio.ByteBuffer;
 import java.io.IOException;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigestSpi;
-import java.util.HashMap;
-import java.util.Scanner;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -31,7 +27,9 @@ public class MyProtocol{
 
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
-
+    private boolean addressConflict;
+    private double p = 0.25;
+    private List<Integer> directions = new ArrayList<>();
     public void TUI(){
         System.out.println(
                 "COMMANDS:" + "\n" +
@@ -40,99 +38,13 @@ public class MyProtocol{
                         "Any other input will be sent as a message through the broadcast for others to see.");
     }
 
-//    public ByteBuffer messageHeader(ByteBuffer payload){
-//        ByteBuffer temp = ByteBuffer.allocate(256);
-//
-//    }
-
-    public ByteBuffer TransmitForwardingPacket(Packet packet) throws InterruptedException {
-        // allocate packet structure in ByteBuffer
-        byte[] packetHeader = new byte[3];
-        int source = packet.getSource();
-        int hasDestination = packet.isRaw()? 0:1; // isRaw means it contains raw bits instead of a forwarding table
-        int destination = packet.getDestination();
-        packetHeader[0] = (byte)source;
-        packetHeader[1] = (byte)hasDestination; // we need to shift the bits to allocate src,dst,flag in one byte
-        packetHeader[2] = (byte)destination;
-
-        // include the forwarding table of the packet in these bits
-        byte[] packetData;
-        if(!packet.isRaw()){
-            FTable fTable = packet.getForwardingtable();
-            packetData = new byte[8 + 4 * fTable.getColumns() * fTable.getRows()]; // max = 8 + (4*4*3)
-
-            int nRows = packet.getForwardingtable().getRows();
-            packetData[0] = (byte) (nRows >> 24);
-            packetData[1] = (byte) (nRows >> 16);
-            packetData[2] = (byte) (nRows >> 8);
-            packetData[3] = (byte) (nRows >> 0);
-
-            int nColumns = packet.getForwardingtable().getColumns();
-            packetData[4] = (byte) (nColumns >> 24);
-            packetData[5] = (byte) (nColumns >> 16);
-            packetData[6] = (byte) (nColumns >> 8);
-            packetData[7] = (byte) (nColumns >> 0);
-
-            for (int i = 0; i < packet.getForwardingtable().getRows(); i++) {
-                for (int j = 0; j < packet.getForwardingtable().getColumns(); j++) {
-
-                    int cellData = packet.getForwardingtable().get(i, j);
-                    packetData[8 + i * packet.getForwardingtable().getColumns() * 4 + j * 4 + 0] = (byte) (cellData >> 24);
-                    packetData[8 + i * packet.getForwardingtable().getColumns() * 4 + j * 4 + 1] = (byte) (cellData >> 16);
-                    packetData[8 + i * packet.getForwardingtable().getColumns() * 4 + j * 4 + 2] = (byte) (cellData >> 8);
-                    packetData[8 + i * packet.getForwardingtable().getColumns() * 4 + j * 4 + 3] = (byte) (cellData >> 0);
-                }
-            }
-        }else{
-            packetData = new byte[0];
-        }
-
-        byte[] fullPacket = new byte[packetHeader.length + packetData.length];
-        System.arraycopy(packetHeader, 0, fullPacket, 0, packetHeader.length);
-        System.arraycopy(packetData, packetHeader.length, fullPacket, packetHeader.length, packetData.length);
-
-        return ByteBuffer.wrap(fullPacket);
-    }
-
-    public void initiateTable(int address){
-        for(int i = 0; i < 4; i ++){
-            Integer[] row = new Integer[3];
-            if(i == address){
-                row[1] = 0;
-            }else{
-                row[1] = INFINITY;
-            }
-            row[0] = i;
-            row[2] = i;
-            forwardingTable.addRow(row);
-        }
-    }
-
-    public boolean completeTable(){
-        for(int i = 0; i < 4; i ++){
-            if(forwardingTable.get(i, 1) == INFINITY){
-                return false;
-            }
-        }
-        return true;
-    }
-    
-    public FTable decodeFTable(ByteBuffer data){
-        FTable newTable = new FTable(3);
-        byte[] packetData = data.array();
-        ByteBuffer wrapped;
-
-        for (int i = 0; i < 4; i++) {
-            for (int j = 0; j < 3; j++) {
-                wrapped = ByteBuffer.wrap(packetData,
-                        3 + 4 * i * 3 + 4 * j, 4); // we need to change this to the proper offset of when the ftable starts
-                wrapped.order(ByteOrder.BIG_ENDIAN);            // the offset is probably wrong
-                int cellData = wrapped.getInt();
-
-                newTable.set(i, j, cellData);
-            }
-        }
-        return newTable;
+    public List<Byte> addressing(Client client){
+        List<Byte> initail = new ArrayList<>();
+        Random rand = new Random();
+        int serialNumber = rand.nextInt(255);
+        client.setAddress(serialNumber);
+        initail.add((byte) serialNumber);
+        return initail;
     }
 
     public void updateTable(FTable neighbourTable, int costWithNeighbour, int neighbourAddress){
@@ -144,82 +56,81 @@ public class MyProtocol{
         }
     }
 
+    public void MAC(Message msg) throws InterruptedException {
+        boolean out = true;
+        while(out) {
+            long start = System.currentTimeMillis();
+            while(System.currentTimeMillis()-start < 400){
+
+            }
+            if (new Random().nextInt(100) < p * 100) {
+                sendingQueue.put(msg);
+                out = false;
+            }
+        }
+    }
+
     public MyProtocol(String server_ip, int server_port, int frequency) throws InterruptedException {
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
+        addressConflict = true;
 
         Client client = new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
 
-        Scanner scan = new Scanner(System.in);
-        System.out.println("Enter your address: ");
-        int address = scan.nextInt();
-        client.setAddress(address);
 
         // Routing and addressing stage
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
 
         // Create an initial forwarding table: should only contain address, cost, nextHop, in said order on the table
-        initiateTable(address);
 
-        boolean complete = false; // comment trial
 
-        while(!complete){
-            // flooding for routing
-            wait(5000); // 5 seconds to allow all nodes to start and send their first packet
-            // formatting the tables by propagating packets with src, destination and flags
-            ByteBuffer flood = TransmitForwardingPacket(new Packet(address, 0, forwardingTable)); // generate an empty pkt (only src)
-            while(!(System.currentTimeMillis() % 4 == address)){
+        while(addressConflict){
+            ByteBuffer msg = ByteBuffer.allocate(1);
+            Random rand = new Random();
+            int address = rand.nextInt(31);
+            directions.add(address);
+            byte[] addressPkt = new byte[2];
+            byte start = (byte) ((0b010 << 5) | address);
+            byte ttl = 0b100;
+            addressPkt[0] = start;
+            addressPkt[1] = ttl;
+            msg = ByteBuffer.wrap(addressPkt);
+
+            long timer = System.currentTimeMillis();
+
+            while(System.currentTimeMillis()-timer < 1000000){
+                MAC(new Message(MessageType.DATA_SHORT, msg));
             }
-            sendingQueue.put(new Message(MessageType.DATA, flood));
-            long startTime = System.currentTimeMillis();                        //needs endtime FOR TIME OUT LATER
-            while (true){
-                try {
-                    ByteBuffer reply = ByteBuffer.allocate(32);
-                    Message m = receivedQueue.take();
-                    if (m.getType() == MessageType.DATA) {
-                        //m.getData().getInt()
-                        System.out.println(m.getData().get());
-                        // forwarding table construction
-                        if(m.getData().get(1) == 0 ) // message only contains source
-                            //the 6th bit from right to left is set to 0 (from the total of 1 byte)
-                        {   //
-//                            int dst=(m.getData().get(0) & ((1<<7)+ (1<<6))) >>6; //src sent
-//                            int dst_flag=1;
-                            //I have all the info, how do I combine in into reply?
-                            //src is address, dst_flag, dst, 3 0s
-                            // send back with src as destination and new src + flag
-                            reply = TransmitForwardingPacket(new Packet(address, m.getData().get(0), forwardingTable));
-                        }else if(m.getData().get(1) == 1 && m.getData().get(2) == address) // message contains destination and such destination is equal to that nodes address
-                            //the 4th and 5th bites form the address of the node
-                        {
-                            long endTime = System.currentTimeMillis();
-                            long total = endTime-startTime; //should be rounded to ~0.1s
-                            // add this to the routing table if this time is shorter than any other entry
-                            // add to routing table
-
-                            FTable neighbourTable = decodeFTable(m.getData());
-                            updateTable(neighbourTable, (int) total, m.getData().get(0)); // updates our forwarding table
-
-                            reply.put(new Message(MessageType.DATA, ));
-                        }else // message contains destination but that isnt equal to that nodes address
-                        {
-                            // propagate message to all other nodes but with src as that nodes address
-                            // this is because some nodes cant reach others so they depend on others to reach the remaining nodes
-                            reply.put(new Message(MessageType.DATA_SHORT, ));
-                        }
-                        while(!(System.currentTimeMillis() % 4 == address)){ // round robin
-                        }
-                        sendingQueue.put(new Message(MessageType.DATA_SHORT, reply));
+            if(directions.size() == 4){
+                directions.sort(new Comparator<Integer>() {
+                    @Override
+                    public int compare(Integer o1, Integer o2) {
+                        return Math.max(o1,o2);
                     }
-                } catch (InterruptedException e){
-                    System.err.println("Failed to take from queue: " + e);
-                }
+                });
+                System.out.println("Turning off addressConflict");
+                addressConflict = false;
+                client.setAddress(directions.indexOf(address)); // makes the addresses smaller (from 0 - 3)
+                ByteBuffer finish = ByteBuffer.allocate(3);
+
+                byte header = (byte) ((0b010 << 5) | directions.get(0));
+                byte second = (byte) ((byte) (directions.get(1) << 3) | directions.get(2) >> 2);
+                byte third = (byte) ((byte) (directions.get(2) << 6) | directions.get(3));
+                finish.put(third);
+                finish.put(second);
+                finish.put(header);
+
+                MAC(new Message(MessageType.DATA, finish));
+
+            }else{
+                System.out.println("EMpty list");
+                directions.clear();
             }
 
-            if(completeTable()){
-                complete = true;
-            }
         }
+
+
+
 
         TUI();
         // handle sending from stdin from this thread.
@@ -254,7 +165,9 @@ public class MyProtocol{
                         // usually just used for the ACKs
                         msg = new Message(MessageType.DATA_SHORT, toSend);
                     }
-                    sendingQueue.put(msg);
+
+
+                    MAC(msg);
                 }
             }
         } catch (InterruptedException e){
@@ -264,7 +177,7 @@ public class MyProtocol{
         }
     }
 
-    public static void main(String args[]) {
+    public static void main(String args[]) throws InterruptedException {
         if(args.length > 0){
             frequency = Integer.parseInt(args[0]);
         }
@@ -298,12 +211,50 @@ public class MyProtocol{
                     } else if (m.getType() == MessageType.DATA){
                         System.out.print("DATA: ");
                         ByteBuffer message = m.getData();
+
+                        if(m.getData().get(0) >> 5 == 0b010 & addressConflict){ // 010 is the identifier for the addressing
+                            addressConflict = false;
+                            // parse all of the 4 addresses to directions
+
+                            int first = (m.getData().get(0) & 0b11111); // to erase the 010 at the start
+                            int second = (m.getData().get(1) >> 3);
+                            int third = ((m.getData().get(1) & 0b111) <<2) |  (m.getData().get(2) & 0b11000000) >>6; //z
+                            int fourth = (m.getData().get(2) & 0b00111110) >>1; //p
+
+                                    // 010-xxxxx yyyyy-zzz zz-ppppp0
+                            MAC(m);
+                        }
+
                         String newContent = new String(message.array());
                         System.out.println(newContent);
                         printByteBuffer( m.getData(), m.getData().capacity() ); //Just print the data
                     } else if (m.getType() == MessageType.DATA_SHORT){
                         System.out.print("DATA_SHORT: ");
                         printByteBuffer( m.getData(), m.getData().capacity() ); //Just print the data
+                        if(m.getData().get(1) != 0b1){
+                            if(m.getData().get(0) >> 5 == 0b010){
+                                int neighbour = (m.getData().get(0) & 0b11111); // to erase the 010 at the start
+                                if(!directions.contains(neighbour) && directions.size() < 5){
+                                    directions.add(neighbour);
+                                    for(Integer direction: directions){
+                                        System.out.print(direction + ", ");
+                                    }
+                                    addressConflict = false;
+                                }
+                                if(addressConflict){ // decrease the ttl
+                                    byte[] newpkt = new byte[2];
+                                    byte start = m.getData().get(0);
+                                    int ttl = m.getData().get(1) - 1;
+                                    newpkt[0] = start;
+                                    newpkt[1] = (byte)ttl;
+
+                                    MAC(new Message(MessageType.DATA, ByteBuffer.wrap(newpkt)));
+                                }
+
+                            }
+                        }
+                        // propagate it again
+
                     } else if (m.getType() == MessageType.DONE_SENDING){
                         System.out.println("DONE_SENDING");
                     } else if (m.getType() == MessageType.HELLO){

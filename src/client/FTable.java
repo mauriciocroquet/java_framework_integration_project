@@ -85,7 +85,8 @@ public class FTable {
 
     public int searchDestination(int neigbourAddress){
         for(int i = 0; i < this.data.size(); i++){
-            if() // look for the first position of the row
+
         }
+        return 0;
     }
 }
