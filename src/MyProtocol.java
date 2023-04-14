@@ -30,6 +30,7 @@ public class MyProtocol{
 
     private Client client;
     boolean endFlood = false;
+    private ForwardingTable forwardingTable;
 
     public void MAC(Message msg) throws InterruptedException {
         boolean trying = true;
@@ -46,7 +47,18 @@ public class MyProtocol{
     public void myWait(int ms) {
         long start = System.currentTimeMillis();
         while(System.currentTimeMillis()-start < ms){
+        }
+    }
 
+    public void propagate(int ms, Message msg){
+        try{
+            long start = System.currentTimeMillis();
+            while(System.currentTimeMillis()-start < ms){
+                MAC(msg);
+            }
+
+        }catch (InterruptedException e){
+            System.exit(2);
         }
     }
 
@@ -121,14 +133,7 @@ public class MyProtocol{
             addressaPkt[2] = (byte) ((byte) (directions.get(2) << 6) | (directions.get(3) << 1));
             ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 
-            try{
-                long start = System.currentTimeMillis();
-                while(System.currentTimeMillis()-start < 2000){
-                    MAC(new Message(MessageType.DATA, msg));
-                }
-            }catch(InterruptedException e){
-                System.exit(2);
-            }
+            propagate(2000, new Message(MessageType.DATA, msg));
             
         }
 
@@ -145,6 +150,25 @@ public class MyProtocol{
         }
         System.out.println(" Should be completed");
         client.setAddress(directions.indexOf(address));
+        forwardingTable = new ForwardingTable(client.getAddress());
+
+//
+//        byte[] dvrPkt =new byte[3];
+//        dvrPkt[0]= (byte) (address <<6); //source, ack is set to 0, destination not needed
+//                                         //        dvrPkt[1]; informartion
+//                                         //sending packet + timer set
+//
+//        byte[] payload = forwardingTable.toBytes();
+//        byte[] fullpacket = new byte[dvrPkt.length+ payload.length];
+//
+//        System.arraycopy(dvrPkt,0, fullpacket,0,dvrPkt.length);
+//        System.arraycopy(payload,0, fullpacket, dvrPkt.length, payload.length);
+//
+//        ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
+//
+//        propagate(2000, new Message(MessageType.DATA, bufferPacket));
+//        long initTime= (System.currentTimeMillis() %10000);
+
 
         // handle sending from stdin from this thread.
         try{
