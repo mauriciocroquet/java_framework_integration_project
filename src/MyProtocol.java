@@ -43,6 +43,19 @@ public class MyProtocol{
             }
         }
     }
+
+    public void slottedMAC(Message msg){ // can only be used after dynamic addressing is done
+        while(true){
+            if(System.currentTimeMillis() % (client.getAddress() + 71) == 0){
+                try{
+                    sendingQueue.put(msg);
+                }catch(InterruptedException e){
+                    System.exit(2);
+                }
+                return;
+            }
+        }
+    }
     // Java's own wait() was not working as intended.
     public void myWait(int ms) {
         long start = System.currentTimeMillis();
@@ -50,7 +63,7 @@ public class MyProtocol{
         }
     }
 
-    public void propagate(int ms, Message msg){
+    public void propagatePure(int ms, Message msg){
         try{
             long start = System.currentTimeMillis();
             while(System.currentTimeMillis()-start < ms){
@@ -60,6 +73,14 @@ public class MyProtocol{
         }catch (InterruptedException e){
             System.exit(2);
         }
+    }
+
+    public void propagateSlotted(int ms, Message msg){
+        long start = System.currentTimeMillis();
+        while(System.currentTimeMillis()-start < ms){
+            slottedMAC(msg);
+        }
+
     }
 
     public MyProtocol(String server_ip, int server_port, int frequency){
@@ -133,7 +154,7 @@ public class MyProtocol{
             addressaPkt[2] = (byte) ((byte) (directions.get(2) << 6) | (directions.get(3) << 1));
             ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 
-            propagate(2000, new Message(MessageType.DATA, msg));
+            propagatePure(2000, new Message(MessageType.DATA, msg));
             
         }
 
@@ -150,24 +171,28 @@ public class MyProtocol{
         }
         System.out.println(" Should be completed");
         client.setAddress(directions.indexOf(address));
+
+        // Start of DVR
         forwardingTable = new ForwardingTable(client.getAddress());
 
-//
-//        byte[] dvrPkt =new byte[3];
-//        dvrPkt[0]= (byte) (address <<6); //source, ack is set to 0, destination not needed
-//                                         //        dvrPkt[1]; informartion
-//                                         //sending packet + timer set
-//
-//        byte[] payload = forwardingTable.toBytes();
-//        byte[] fullpacket = new byte[dvrPkt.length+ payload.length];
-//
-//        System.arraycopy(dvrPkt,0, fullpacket,0,dvrPkt.length);
-//        System.arraycopy(payload,0, fullpacket, dvrPkt.length, payload.length);
-//
-//        ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
-//
-//        propagate(2000, new Message(MessageType.DATA, bufferPacket));
-//        long initTime= (System.currentTimeMillis() %10000);
+        myWait(30000);
+
+
+        byte[] dvrPkt =new byte[2];
+        // header should contain: identifier (3 bits), src (2 bits), hops (2 bits), sender (2 bits) --- 10 bits of header
+        // format: iii-ss-hh-d d0000000
+        dvrPkt[0] = (byte) ((0b010 << 5) | (client.getAddress() << 3) | (client.getAddress() >> 1));
+        dvrPkt[1] = (byte) ((client.getAddress() << 7));
+
+        byte[] payload = forwardingTable.toBytes();
+        byte[] fullpacket = new byte[dvrPkt.length+ payload.length];
+
+        System.arraycopy(dvrPkt,0, fullpacket,0,dvrPkt.length);
+        System.arraycopy(payload,0, fullpacket, dvrPkt.length, payload.length);
+
+        ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
+
+        slottedMAC(new Message(MessageType.DATA, bufferPacket));
 
 
         // handle sending from stdin from this thread.
@@ -239,8 +264,33 @@ public class MyProtocol{
                             directions.add(m.getData().get(1) >> 3);
                             directions.add(((m.getData().get(1) & 0b111) << 2) | m.getData().get(2) >> 6 );
                             directions.add((m.getData().get(2) & 0b111110) >>1);
+                        }else if(directions.size() == 4){
+                            // all the rest and after DVR
+                            if(m.getData().get(0) >> 5 == 0b010 && (Integer)((m.getData().get(0) & 0b00000110) >> 1) != 0b11){ // 010 is the identifier for DVR
+                                int src = (m.getData().get(0) & 0b00011000) >> 3;
+                                int hops = (m.getData().get(0) & 0b00000110) >> 1;
+                                int sender = ((m.getData().get(0) & 0b1) << 1) | (m.getData().get(1) >> 7);
+                                hops++;
+                                ForwardingTable neighbour = new ForwardingTable(m.getData().array());
+                                if(hops < forwardingTable.getCost(src)){
+                                    forwardingTable.newRoute(src,hops,sender);
+                                }
+                                forwardingTable.mergeTables(neighbour);
+                                forwardingTable.print();
+                                // now change sender and put it in the sending queue
+                                byte[] header =new byte[2];
+                                header[0] = (byte) ((0b010 << 5) | (src << 3) | (hops << 1) | (client.getAddress() >> 1));
+                                header[1] = (byte) (client.getAddress() << 7);
+                                byte[] payload = neighbour.toBytes();
+                                byte[] fullpacket = new byte[header.length+ payload.length];
 
+                                System.arraycopy(header,0, fullpacket,0,header.length);
+                                System.arraycopy(payload,0, fullpacket, header.length, payload.length);
 
+                                ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
+
+                                slottedMAC(new Message(MessageType.DATA, bufferPacket));
+                            }
                         }
                     } else if (m.getType() == MessageType.DATA_SHORT){
                         System.out.print("DATA_SHORT: ");

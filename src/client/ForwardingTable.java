@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ForwardingTable {
-    public int INF = 100000;
+    public int INF = 4;
     private Integer[][] fTable = new Integer[4][3];
     private int address;
     public ForwardingTable(int address){    // Format of the row: Destination : Cost : NextHop
@@ -25,10 +25,11 @@ public class ForwardingTable {
     // aa-cccccc cccccc-nn
 
     public ForwardingTable(byte[] fTable){ // only the payload will be taken into the function
+                                           // currently attempting full packet and +2 on fTable to ignore header
         for(int i = 0; i < 8; i+=2){
-            int node = fTable[i]>>6;
-            int cost = ((fTable[i] & 0b111111) <<6) | (fTable[i+1] >>2);
-            int nextHop= fTable[i+1] &0b11;
+            int node = fTable[i+2]>>6;
+            int cost = ((fTable[i+2] & 0b111111) <<6) | (fTable[i+1+2] >>2);
+            int nextHop= fTable[i+1+2] &0b11;
             this.fTable[i/2][0] = node;
             this.fTable[i/2][1] = cost;
             this.fTable[i/2][2] = nextHop;
@@ -80,6 +81,17 @@ public class ForwardingTable {
         }
 
         return table;
+    }
+
+    public void arrivingTable(int src, int hops){
+
+    }
+
+    public void print(){
+        System.out.println("[ Dst | Cst | NHp ]");
+        for(int i = 0; i < 4; ++i){
+            System.out.println("[  " + fTable[i][0] + "  |  " + fTable[i][1] + "  |  " + fTable[i][2] + "  ]");
+        }
     }
 }
 
