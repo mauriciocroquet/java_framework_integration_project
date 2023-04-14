@@ -2,11 +2,10 @@ import client.*;
 
 import java.nio.ByteBuffer;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.stream.Collector;
 
 /**
  * This is just some example code to show you how to interact
@@ -28,20 +27,26 @@ public class MyProtocol{
     private BlockingQueue<Message> sendingQueue;
 
     private List<Integer> directions = new ArrayList<>();
+
+    private Client client;
     boolean endFlood = false;
 
     public void MAC(Message msg) throws InterruptedException {
         boolean trying = true;
         double p = 0.25;
         while(trying){
-            long start = System.currentTimeMillis();
-            while(System.currentTimeMillis()-start < 500){
-
-            }
+            myWait(500);
             if (new Random().nextInt(100) < p * 100) {
                 sendingQueue.put(msg);
                 trying = false;
             }
+        }
+    }
+    // Java's own wait() was not working as intended.
+    public void myWait(int ms) {
+        long start = System.currentTimeMillis();
+        while(System.currentTimeMillis()-start < ms){
+
         }
     }
 
@@ -49,13 +54,13 @@ public class MyProtocol{
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
 
-        new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
+        client = new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
 
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
-
+        int address = 0;
         while(directions.size() < 4){
             Random rand = new Random();
-            int address = rand.nextInt(31);
+            address = rand.nextInt(31);
             byte pkt = (byte) (0b01000000 | address);
 
             directions.add(address);
@@ -80,32 +85,66 @@ public class MyProtocol{
                 directions.clear();
             }
 
-            // si es menos de 4, espera un rato para que todos se den cuenta y vacia tu receiving queue
+            //if the directions size is smaller than 4, wait a while for all to finish/reset and then start over
+            myWait(800);
 
-        }
-        for(Integer direction: directions){
-            System.out.print(direction + ", ");
-        }
-        System.out.println(" Should be the completed direction list");
-        // now end the while loops of others
-        ByteBuffer end = ByteBuffer.allocate(1);
-        byte endSignal = 0b01100000;
-        end.put(endSignal);
 
-        try{
-            long start = System.currentTimeMillis();
-            while(System.currentTimeMillis()-start < 1000){
-                MAC(new Message(MessageType.DATA_SHORT, end));
-            }
-
-        }catch (InterruptedException e){
-            System.exit(2);
         }
 
         receivedQueue.clear();
 
-        // propaga esa lista un rato
+        if(directions.size() == 4){
 
+            // now end the while loops of others
+            ByteBuffer end = ByteBuffer.allocate(1);
+            byte endSignal = 0b01100000;
+            end.put(endSignal);
+
+
+            // the first node that gets all directions call others to ask them to stop flooding
+            try{
+                long start = System.currentTimeMillis();
+                while(System.currentTimeMillis()-start < 1000){
+                    MAC(new Message(MessageType.DATA_SHORT, end));
+                }
+
+            }catch (InterruptedException e){
+                System.exit(2);
+            }
+
+            // propagate the directions for a while
+            // type: DATA, Parsing: 110-xxxxx yyyyy-zzz zz-ooooo0
+
+            byte[] addressaPkt = new byte[3];
+            addressaPkt[0] = (byte) (0b01100000 | directions.get(0));
+            addressaPkt[1] = (byte) ((byte) (directions.get(1) << 3) | (directions.get(2) >> 2));
+            addressaPkt[2] = (byte) ((byte) (directions.get(2) << 6) | (directions.get(3) << 1));
+            ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
+
+            try{
+                long start = System.currentTimeMillis();
+                while(System.currentTimeMillis()-start < 2000){
+                    MAC(new Message(MessageType.DATA, msg));
+                }
+            }catch(InterruptedException e){
+                System.exit(2);
+            }
+            
+        }
+
+        // habia un receiving queue aca
+        while(directions.size() != 4){
+        }
+        receivedQueue.clear();
+
+        Collections.sort(directions); // sort the list so the index of all
+                                      // of the nodes can be reduced to two by using their respective index
+
+        for(Integer direction: directions){
+            System.out.print(direction + ", ");
+        }
+        System.out.println(" Should be completed");
+        client.setAddress(directions.indexOf(address));
 
         // handle sending from stdin from this thread.
         try{
@@ -152,7 +191,7 @@ public class MyProtocol{
 
         public void printByteBuffer(ByteBuffer bytes, int bytesLength){
             for(int i=0; i<bytesLength; i++){
-                System.out.print( Byte.toString( bytes.get(i) )+" " );
+                System.out.print(Byte.toString( bytes.get(i) )+" " );
             }
             System.out.println();
         }
@@ -168,17 +207,23 @@ public class MyProtocol{
                     } else if (m.getType() == MessageType.DATA){
                         System.out.print("DATA: ");
                         printByteBuffer( m.getData(), m.getData().capacity() ); //Just print the data
+                        if(m.getData().get(0) >> 5 == 0b011 & directions.size() != 4){
+                            MAC(m);
+                            directions.clear();
+                            // type: DATA, Parsing: 110-xxxxx yyyyy-zzz zz-ooooo0
+                            directions.add(m.getData().get(0) & 0b00011111);
+                            directions.add(m.getData().get(1) >> 3);
+                            directions.add(((m.getData().get(1) & 0b111) << 2) | m.getData().get(2) >> 6 );
+                            directions.add((m.getData().get(2) & 0b111110) >>1);
+
+
+                        }
                     } else if (m.getType() == MessageType.DATA_SHORT){
                         System.out.print("DATA_SHORT: ");
                         if(m.getData().get(0) >> 5 == 0b010){
-                            System.out.println("Address " + (m.getData().get(0) & 0b00011111 ) + " was obtained");
                             int neighbour = m.getData().get(0) & 0b00011111;
                             if(!directions.contains(neighbour)) {
                                 directions.add(neighbour);
-                                for (Integer direction : directions) {
-                                    System.out.print(direction + ", ");
-                                }
-
                                 if (directions.size() < 4) {
                                     MAC(m);
                                 }
