@@ -27,9 +27,9 @@ public class ForwardingTable {
     public ForwardingTable(byte[] fTable){ // only the payload will be taken into the function
                                            // currently attempting full packet and +2 on fTable to ignore header
         for(int i = 0; i < 8; i+=2){
-            int node = fTable[i+2]>>6;
-            int cost = ((fTable[i+2] & 0b111111) <<6) | (fTable[i+1+2] >>2);
-            int nextHop= fTable[i+1+2] &0b11;
+            int node = (fTable[i+2]>>6);
+            int cost =( ((fTable[i+2] & 0b111111) <<6) | (fTable[i+1+2] >>2));
+            int nextHop= (fTable[i+1+2] &0b11);
             this.fTable[i/2][0] = node;
             this.fTable[i/2][1] = cost;
             this.fTable[i/2][2] = nextHop;
@@ -76,7 +76,7 @@ public class ForwardingTable {
         byte[] table = new byte[8];
         // aa-cccccc cccccc-nn
         for (int i = 0; i < 8; i+=2) {
-            table[i] = (byte) (fTable[i/2][0] << 6 | fTable[i/2][1] >> 6);
+            table[i] = (byte) (fTable[i/2][0] << 6 | fTable[i/2][1] >>> 6);
             table[i+1] = (byte) (((fTable[i/2][1] & 0b111111) <<2) | fTable[i/2][2]);
         }
 

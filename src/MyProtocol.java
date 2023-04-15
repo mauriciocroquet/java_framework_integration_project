@@ -46,7 +46,7 @@ public class MyProtocol{
 
     public void slottedMAC(Message msg){ // can only be used after dynamic addressing is done
         while(true){
-            if(System.currentTimeMillis() % (client.getAddress() + 71) == 0){
+            if(System.currentTimeMillis() % (client.getAddress() + 301) == 0){
                 try{
                     sendingQueue.put(msg);
                 }catch(InterruptedException e){
@@ -84,6 +84,7 @@ public class MyProtocol{
     }
 
     public MyProtocol(String server_ip, int server_port, int frequency){
+        long globalTimer = System.currentTimeMillis();
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
 
@@ -104,7 +105,7 @@ public class MyProtocol{
                 long timer = System.currentTimeMillis();
                 while(System.currentTimeMillis() - timer < 100000){
                     MAC(new Message(MessageType.DATA_SHORT, msg));
-                    System.out.println("Still here");
+                    System.out.println("Still here - looking for neighbours");
                     if(directions.size() == 4 || endFlood){
                         break;
                     }
@@ -120,7 +121,7 @@ public class MyProtocol{
             }
 
             //if the directions size is smaller than 4, wait a while for all to finish/reset and then start over
-            myWait(800);
+            myWait(80000);
 
 
         }
@@ -155,12 +156,14 @@ public class MyProtocol{
             addressaPkt[2] = (byte) ((byte) (directions.get(2) << 6) | (directions.get(3) << 1));
             ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 
-            propagatePure(4000, new Message(MessageType.DATA, msg));
-            
+            while(System.currentTimeMillis() - globalTimer < 40000){
+                propagatePure(4000, new Message(MessageType.DATA, msg));
+            }
+
         }
 
         // habia un receiving queue aca
-        while(directions.size() != 4){
+        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 30000){
         }
         receivedQueue.clear();
 
@@ -265,9 +268,10 @@ public class MyProtocol{
                             directions.add(m.getData().get(1) >> 3);
                             directions.add(((m.getData().get(1) & 0b111) << 2) | m.getData().get(2) >> 6 );
                             directions.add((m.getData().get(2) & 0b111110) >>1);
+
                         }else if(directions.size() == 4){
                             // all the rest and after DVR
-                            if(m.getData().get(0) >> 5 == 0b010 && (Integer)((m.getData().get(0) & 0b00000110) >> 1) != 0b11){ // 010 is the identifier for DVR
+                            if(m.getData().get(0) >> 5 == 0b010 && ((m.getData().get(0) & 0b00000110) >> 1) != 0b11){ // 010 is the identifier for DVR
                                 int src = (m.getData().get(0) & 0b00011000) >> 3;
                                 int hops = (m.getData().get(0) & 0b00000110) >> 1;
                                 int sender = ((m.getData().get(0) & 0b1) << 1) | (m.getData().get(1) >> 7);
@@ -297,6 +301,7 @@ public class MyProtocol{
                         System.out.print("DATA_SHORT: ");
                         if(m.getData().get(0) >> 5 == 0b010){
                             int neighbour = m.getData().get(0) & 0b00011111;
+                            System.out.println("New nb: " + neighbour);
                             if(!directions.contains(neighbour)) {
                                 directions.add(neighbour);
                                 if (directions.size() < 4) {
