@@ -104,6 +104,7 @@ public class MyProtocol{
                 long timer = System.currentTimeMillis();
                 while(System.currentTimeMillis() - timer < 100000){
                     MAC(new Message(MessageType.DATA_SHORT, msg));
+                    System.out.println("Still here");
                     if(directions.size() == 4 || endFlood){
                         break;
                     }
@@ -126,7 +127,7 @@ public class MyProtocol{
 
         receivedQueue.clear();
 
-        if(directions.size() == 4){
+        if(directions.size() == 4 && !endFlood){
 
             // now end the while loops of others
             ByteBuffer end = ByteBuffer.allocate(1);
@@ -154,7 +155,7 @@ public class MyProtocol{
             addressaPkt[2] = (byte) ((byte) (directions.get(2) << 6) | (directions.get(3) << 1));
             ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 
-            propagatePure(2000, new Message(MessageType.DATA, msg));
+            propagatePure(4000, new Message(MessageType.DATA, msg));
             
         }
 
