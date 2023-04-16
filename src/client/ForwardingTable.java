@@ -19,20 +19,30 @@ public class ForwardingTable {
             }
         }
     }
-    // aa-cccccc cccccc-nn
-    // aa-cccccc cccccc-nn
-    // aa-cccccc cccccc-nn
-    // aa-cccccc cccccc-nn
+
+    // vamos a cambiar esto a 00-aa-cc-nn
 
     public ForwardingTable(byte[] fTable){ // only the payload will be taken into the function
                                            // currently attempting full packet and +2 on fTable to ignore header
-        for(int i = 0; i < 8; i+=2){
-            int node = (fTable[i+2]>>6);
-            int cost =( ((fTable[i+2] & 0b111111) <<6) | (fTable[i+1+2] >>2));
-            int nextHop= (fTable[i+1+2] &0b11);
-            this.fTable[i/2][0] = node;
-            this.fTable[i/2][1] = cost;
-            this.fTable[i/2][2] = nextHop;
+//        for(int i = 0; i < 8; i+=2){
+//            int node = (fTable[i+2]>>6);
+//            int cost =( ((fTable[i+2] & 0b111111) <<6) | (fTable[i+1+2] >>2));
+//            int nextHop= (fTable[i+1+2] &0b11);
+//            this.fTable[i/2][0] = node;
+//            this.fTable[i/2][1] = cost;
+//            this.fTable[i/2][2] = nextHop;
+//            if(cost == 0){
+//                this.address = node;
+//            }
+//        }                 this one is for the old aa-cccccc cccccc-nn format
+
+        for(int i = 0; i < 4; i++){
+            int node = fTable[i] >> 4;
+            int cost = (fTable[i] >> 2) & 0b11;
+            int nhop = fTable[i] & 0b11;
+            this.fTable[i][0] = node;
+            this.fTable[i][1] = cost;
+            this.fTable[i][2] = nhop;
             if(cost == 0){
                 this.address = node;
             }
@@ -66,18 +76,23 @@ public class ForwardingTable {
             return;
         }
         for(int i = 0; i < 4; ++i){
-            if(costToNB + nbTable.getCost(i) < this.getCost(i)){
+            if(costToNB + nbTable.getCost(i) < this.getCost(i) & i != this.getAddress()){
                 this.newRoute(i,costToNB + nbTable.getCost(i), nbTable.getAddress());
             }
         }
     }
 
     public byte[] toBytes(){
-        byte[] table = new byte[8];
-        // aa-cccccc cccccc-nn
-        for (int i = 0; i < 8; i+=2) {
-            table[i] = (byte) (fTable[i/2][0] << 6 | fTable[i/2][1] >>> 6);
-            table[i+1] = (byte) (((fTable[i/2][1] & 0b111111) <<2) | fTable[i/2][2]);
+        byte[] table = new byte[4];
+        // aa-cccccc cccccc-nn this is the old format
+//        for (int i = 0; i < 8; i+=2) {
+//            table[i] = (byte) (fTable[i/2][0] << 6 | fTable[i/2][1] >>> 6);
+//            table[i+1] = (byte) (((fTable[i/2][1] & 0b111111) <<2) | fTable[i/2][2]);
+//        }
+
+        // new format 00aa-cc-nn
+        for(int i = 0; i < 4; i++){
+            table[i] = (byte) (fTable[i][0] << 4 | fTable[i][1] << 2 | fTable[i][2]);
         }
 
         return table;

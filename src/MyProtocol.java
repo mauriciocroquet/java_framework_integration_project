@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.stream.Collector;
 
 /**
  * This is just some example code to show you how to interact
@@ -185,8 +184,12 @@ public class MyProtocol{
         byte[] dvrPkt =new byte[2];
         // header should contain: identifier (3 bits), src (2 bits), hops (2 bits), sender (2 bits) --- 10 bits of header
         // format: iii-ss-hh-d d0000000
-        dvrPkt[0] = (byte) ((0b010 << 5) | (client.getAddress() << 3) | (client.getAddress() >> 1));
-        dvrPkt[1] = (byte) ((client.getAddress() << 7));
+        // vamos a cambiar esto a iii00000 00ss-hh-dd
+//        dvrPkt[0] = (byte) ((0b010 << 5) | (client.getAddress() << 3) | (client.getAddress() >> 1));
+//        dvrPkt[1] = (byte) ((client.getAddress() << 7));          this was the old format
+
+        dvrPkt[0] = (byte) (0b010 << 5);
+        dvrPkt[1] = (byte) ((client.getAddress() << 4) | (client.getAddress() >> 1));
 
         byte[] payload = forwardingTable.toBytes();
         byte[] fullpacket = new byte[dvrPkt.length+ payload.length];
@@ -271,21 +274,24 @@ public class MyProtocol{
 
                         }else if(directions.size() == 4){
                             // all the rest and after DVR
-                            if(m.getData().get(0) >> 5 == 0b010 && ((m.getData().get(0) & 0b00000110) >> 1) != 0b11){ // 010 is the identifier for DVR
-                                int src = (m.getData().get(0) & 0b00011000) >> 3;
-                                int hops = (m.getData().get(0) & 0b00000110) >> 1;
-                                int sender = ((m.getData().get(0) & 0b1) << 1) | (m.getData().get(1) >> 7);
+                            // new format iii00000 00ss-hh-dd
+                            if(m.getData().get(0) >> 5 == 0b010 && ((m.getData().get(1) & 0b1100) >> 2) != 0b11){ // 010 is the identifier for DVR
+                                int src = m.getData().get(1) >> 4;
+                                int hops = (m.getData().get(1) >> 2) & 0b11;
+                                int sender = m.getData().get(1) & 0b11;
+
                                 hops++;
+                                System.out.println("hops: " + hops);
                                 ForwardingTable neighbour = new ForwardingTable(m.getData().array());
                                 if(hops < forwardingTable.getCost(src)){
                                     forwardingTable.newRoute(src,hops,sender);
                                 }
-                                forwardingTable.mergeTables(neighbour);
+//                                forwardingTable.mergeTables(neighbour);
                                 forwardingTable.print();
                                 // now change sender and put it in the sending queue
                                 byte[] header =new byte[2];
-                                header[0] = (byte) ((0b010 << 5) | (src << 3) | (hops << 1) | (client.getAddress() >> 1));
-                                header[1] = (byte) (client.getAddress() << 7);
+                                header[0] = (byte) (0b010 << 5);
+                                header[1] = (byte) (src << 4 | hops << 2 | client.getAddress());
                                 byte[] payload = neighbour.toBytes();
                                 byte[] fullpacket = new byte[header.length+ payload.length];
 
