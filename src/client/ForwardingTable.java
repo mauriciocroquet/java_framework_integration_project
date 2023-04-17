@@ -70,13 +70,14 @@ public class ForwardingTable {
 
     public void mergeTables(ForwardingTable nbTable){ // Searches to see if faster routes are available from neighbour table
         int linkcost = nbTable.getCost(address);
+        int nbaddress = nbTable.getAddress();
         if(linkcost == INF){//does not get here
             return;
         }
         for(int i = 0; i < 4; i++){
             int destination = nbTable.getDestination(i);
             if(nbTable.getCost(i) + linkcost < this.getCost(destination)){
-                this.newRoute(i, nbTable.getCost(i) + linkcost, destination);
+                this.newRoute(i, nbTable.getCost(i) + linkcost, nbaddress);
             }
         }
     }
