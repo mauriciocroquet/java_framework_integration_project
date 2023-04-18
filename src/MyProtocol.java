@@ -82,7 +82,7 @@ public class MyProtocol{
         boolean trying = true;
         double p = 0.30;
         while(trying){
-            myWait(800);
+            myWait(900);
             if (new Random().nextInt(100) < p * 100) {
                 sendingQueue.put(msg);
                 trying = false;
@@ -161,7 +161,7 @@ public class MyProtocol{
         try{
             long start = System.currentTimeMillis();
             while(System.currentTimeMillis()-start < ms){
-                myWait(11000);
+                myWait(14000);
                 MAC(msg);
             }
 
@@ -328,8 +328,8 @@ public class MyProtocol{
             addressaPkt[4] = (byte) (directions.get(3) & 0b1111111);
             ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 
-            while(System.currentTimeMillis() - globalTimer < 50000){
-                myWait(1000);
+            while(System.currentTimeMillis() - globalTimer < 120000){
+                myWait(1200);
                 System.out.println("Propagating full list");
                 try{
                     MAC(new Message(MessageType.DATA, msg));
@@ -342,7 +342,7 @@ public class MyProtocol{
         }
         System.out.println("Before timer");
         // habia un receiving queue aca
-        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 50000){
+        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 120000){
         }
 
         Collections.sort(directions); // sort the list so the index of all
@@ -385,7 +385,7 @@ public class MyProtocol{
 
         ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
-        while(System.currentTimeMillis() - globalTimer < 150000){
+        while(System.currentTimeMillis() - globalTimer < 300000){
             propagatePureTables(30000, new Message(MessageType.DATA, bufferPacket));
         }
         System.out.println("Finish propagating tables");
@@ -510,7 +510,7 @@ public class MyProtocol{
                                 directions.add((int) m.getData().get(4));
                             }
 
-                            propagatePure(10000, m);
+                            propagatePureTables(10000, m);
                         }else if(directions.size() == 4 && m.getData().get(0) >> 5 == 0b010 ){ // added the a&& to avoid this if
                             // all the rest and after DVR
                             // new format iii00000 0dd-hhh-nn
@@ -546,7 +546,7 @@ public class MyProtocol{
 //                                for(int i = 0; i < 10; i++){
 //                                    slottedMAC(new Message(MessageType.DATA, bufferPacket));
 //                                }
-                                while(System.currentTimeMillis() - globalTimer < 180000){
+                                while(System.currentTimeMillis() - globalTimer < 300000){
                                     propagatePureTables(15000, new Message(MessageType.DATA, bufferPacket));
                                 }
 
