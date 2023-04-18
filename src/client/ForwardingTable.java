@@ -99,6 +99,26 @@ public class ForwardingTable {
 
         }
     }
+
+    public List<Integer> getNeigbours(){
+        List<Integer> neighbours = new ArrayList<>();
+        for(int i = 0; i < 4; ++i){
+            if(fTable[i][0] != address){
+                neighbours.add(i);
+            }
+        }
+        return neighbours;
+    }
+
+    public List<Integer> getNextHops(){
+        List<Integer> nexthop = new ArrayList<>();
+        for(int i = 0; i < 4; ++i){
+            if(fTable[i][0] != address){
+                nexthop.add(fTable[i][2]);
+            }
+        }
+        return nexthop;
+    }
 }
 
 

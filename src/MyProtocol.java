@@ -9,6 +9,8 @@ import java.util.Date;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 
 /**
  * This is just some example code to show you how to interact
@@ -28,7 +30,6 @@ public class MyProtocol{
 
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
-    private Date date = new Date();
 
     private List<Integer> directions = new ArrayList<>();
 
@@ -38,43 +39,50 @@ public class MyProtocol{
     private boolean ACK = false;
 
     private int sequenceNum = 0;
-    private List<PacketACK> packetAck = new ArrayList<>();
-    private List<Message> pending = new ArrayList<>();
+//    private List<PacketACK> packetAck = new ArrayList<>();
+//    private List<Message> pending = new ArrayList<>();
+
+    private List<Message> retransmitList = new ArrayList<>();//ack list
+    private List<Message> printingList = new ArrayList<>();
+    private HashMap<Byte,List<Message>> fragmentationMap = new HashMap<>();
+    private long globalTimer;
+
+
 
 
     public void printMessage(Message msg){
         ByteBuffer bb = msg.getData();
         byte[] bytes = bb.array();
-        int payloadLen = bytes[2] & 0b11111;
+        int payloadLen = (bytes[2] >> 3);
         int sender = bytes[1] >> 7;
-        System.out.print("[" + sender + "]: ");
+        System.out.print("[Message]: "); // change this sender later
         for(int i = 0; i < payloadLen; i++){
             System.out.print((char)bytes[3+i]);
         }
         System.out.println();
     }
     
-    public void fullSend(Message m){
-        pending.add(m); // we remove this from the list when we get the respective ack
-        while(!ACK){
-            if(pending.contains(m)){
-                slottedMAC(m);
-            }
-            myWait(800); // wait for timeout
-            // we're turning it to true in run()
-        }
-        ACK = false;
-    }
-
-    public void ackRecieved(){
-        packetAck.removeIf(packet -> System.currentTimeMillis() - packet.timestamp > 2500); // time may be longer than expected for acks
-    }
+//    public void fullSend(Message m){
+//        pending.add(m); // we remove this from the list when we get the respective ack
+//        while(!ACK){
+//            if(pending.contains(m)){
+//                slottedMAC(m);
+//            }
+//            myWait(800); // wait for timeout
+//            // we're turning it to true in run()
+//        }
+//        ACK = false;
+//    }
+//
+//    public void ackRecieved(){
+//        packetAck.removeIf(packet -> System.currentTimeMillis() - packet.timestamp > 2500); // time may be longer than expected for acks
+//    }
 
     public void MAC(Message msg) throws InterruptedException {
         boolean trying = true;
-        double p = 0.15;
+        double p = 0.30;
         while(trying){
-            myWait(500);
+            myWait(800);
             if (new Random().nextInt(100) < p * 100) {
                 sendingQueue.put(msg);
                 trying = false;
@@ -82,7 +90,7 @@ public class MyProtocol{
         }
     }
 
-//    public void acknoledge(PacketACK pkt){
+//    public void acknowledge(PacketACK pkt){
 //        waitingACK.remove(pkt);
 //    }
 //
@@ -92,10 +100,10 @@ public class MyProtocol{
 //        }
 //    }
 //
-//    public void updateSeq(){ // just to update sequence numbers while chatting
-//        sequenceNum++;
-//        sequenceNum = sequenceNum % 8;
-//    }
+    public void updateSeq(){ // just to update sequence numbers while chatting
+        sequenceNum++;
+        sequenceNum = sequenceNum % 8;
+    }
 //
 //    public void slottedMACACK(Message msg){
 //        ByteBuffer bytes = msg.getData();
@@ -115,12 +123,13 @@ public class MyProtocol{
 //    }
 
     public void slottedMAC(Message msg){ // can only be used after dynamic addressing is done
-        System.out.println("Into slotted");
+//        System.out.println("Into slotted");
         while(true){
-            if((date.getTime() % 600 > client.getAddress()* 150L) && (date.getTime() % 600 < (client.getAddress()* 150L)+150 )){
+            Date dateTime = new Date();
+            if((dateTime.getTime() % 1000 > client.getAddress()* 250L) && (dateTime.getTime() % 600 < (client.getAddress()* 250L)+250 )){
                 try{
                     sendingQueue.put(msg);
-                    System.out.println("sending slotted");
+//                    System.out.println("sending slotted");
                 }catch(InterruptedException e){
                     System.exit(2);
                 }
@@ -139,6 +148,20 @@ public class MyProtocol{
         try{
             long start = System.currentTimeMillis();
             while(System.currentTimeMillis()-start < ms){
+
+                MAC(msg);
+            }
+
+        }catch (InterruptedException e){
+            System.exit(2);
+        }
+    }
+
+    public void propagatePureTables(int ms, Message msg){
+        try{
+            long start = System.currentTimeMillis();
+            while(System.currentTimeMillis()-start < ms){
+                myWait(11000);
                 MAC(msg);
             }
 
@@ -155,8 +178,76 @@ public class MyProtocol{
 
     }
 
+    public void chatRoom(){
+        while(!receivedQueue.isEmpty()){
+            // wait
+        }
+        while (true){
+            System.out.print("["+client.getAddress()+"]: ");
+            Scanner scan = new Scanner(System.in);
+            String text = scan.nextLine();
+            updateSeq();
+            if(text.length() > 30){
+//                int packetNumber  = ;
+            }else{ //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
+                Message message = null;
+                for(int i = 0; i < 3; i++){
+                    byte[] header = new byte[3];
+                    byte[] payload = text.getBytes();
+//                    System.out.println("Sending a message from ");
+                    header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+                    header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2); // no frag
+                    header[2] = (byte) (payload.length << 3);
+                    byte[] packet = new byte[header.length+payload.length];
+                    System.arraycopy(header,0, packet,0,header.length);
+                    System.arraycopy(payload,0, packet, header.length, payload.length);
+                    ByteBuffer msg = ByteBuffer.wrap(packet);
+                    message = new Message(MessageType.DATA, msg);
+                    new ackThread(message).start();
+                }
+            }
+
+        }
+    }
+
+    public void fragmentationFinder(byte key, Message frag){
+        if(fragmentationMap.containsKey(key)){
+            // wew know it has two then we print them in order
+            List<Message> fragments = fragmentationMap.get(key);
+            if((fragments.get(0).getData().array()[1] & 0b11) < (frag.getData().array()[1] & 0b11)){
+                // print frag first
+                printMessage(frag);
+                printMessage(fragments.get(0));
+            }else{
+                // print fragments.get(0) first
+                printMessage(fragments.get(0));
+                printMessage(frag);
+            }
+        }else{
+            List<Message> values = new ArrayList<>();
+            values.add(frag);
+            fragmentationMap.put(key, values);
+        }
+    }
+
+    void redirectMessage(Message msg){
+        do{
+            if(!retransmitList.contains(msg)){
+                retransmitList.add(msg);
+            }
+            myWait(10000);
+        }while(retransmitList.contains(msg));
+    }
+
+    public byte[] ackBuilder(int src, int dest, int sequenceNum, int frag){
+        byte[] ack = new byte[2];
+        ack[0] = (byte) ((src << 3) | (dest << 1));
+        ack[1] = (byte) ((sequenceNum << 2) | frag);
+        return ack;
+    }
+
     public MyProtocol(String server_ip, int server_port, int frequency){
-        long globalTimer = System.currentTimeMillis();
+        globalTimer = System.currentTimeMillis();
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
 
@@ -168,7 +259,7 @@ public class MyProtocol{
             Random rand = new Random();
             address = rand.nextInt(127);
 
-            System.out.println("the random number: " + address);
+//            System.out.println("the random number: " + address);
 
             byte[] pkt = new byte[2];
             pkt[0] = (byte) 0b010 << 5;
@@ -237,7 +328,8 @@ public class MyProtocol{
             addressaPkt[4] = (byte) (directions.get(3) & 0b1111111);
             ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 
-            while(System.currentTimeMillis() - globalTimer < 40000){
+            while(System.currentTimeMillis() - globalTimer < 50000){
+                myWait(1000);
                 System.out.println("Propagating full list");
                 try{
                     MAC(new Message(MessageType.DATA, msg));
@@ -250,7 +342,7 @@ public class MyProtocol{
         }
         System.out.println("Before timer");
         // habia un receiving queue aca
-        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 40000){
+        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 50000){
         }
 
         Collections.sort(directions); // sort the list so the index of all
@@ -271,6 +363,10 @@ public class MyProtocol{
         sendingQueue.clear();
 
 
+//        long startDVR = System.currentTimeMillis();
+//        while(System.currentTimeMillis()-startDVR < 90000){
+//
+//        }
         byte[] dvrPkt =new byte[2];
         // header should contain: identifier (3 bits), src (2 bits), hops (2 bits), sender (2 bits) --- 10 bits of header
         // format: iii-ss-hh-d d0000000
@@ -289,14 +385,19 @@ public class MyProtocol{
 
         ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
-//        propagatePure(12000, new Message(MessageType.DATA, bufferPacket));
-        System.out.println("Outside");
-        for(int i = 0; i < 10; i++){
-            slottedMAC(new Message(MessageType.DATA, bufferPacket));
-            System.out.println("Trying...");
+        while(System.currentTimeMillis() - globalTimer < 150000){
+            propagatePureTables(30000, new Message(MessageType.DATA, bufferPacket));
         }
+        System.out.println("Finish propagating tables");
+
+//        System.out.println("Outside");
+//        for(int i = 0; i < 10; i++){
+//            slottedMAC(new Message(MessageType.DATA, bufferPacket));
+//            System.out.println("Trying...");
+//        }
 
         // handle sending from stdin from this thread.
+        chatRoom();
         try{
             ByteBuffer temp = ByteBuffer.allocate(1024);
             int read = 0;
@@ -329,6 +430,47 @@ public class MyProtocol{
             frequency = Integer.parseInt(args[0]);
         }
         new MyProtocol(SERVER_IP, SERVER_PORT, frequency);
+    }
+
+    private class ackThread extends Thread{
+        private final Message msg;
+        public ackThread(Message msg){
+            super();
+            this.msg = msg;
+        }
+
+        @Override
+        public void run() {
+            do{
+                try{
+                    MAC(msg);
+                    byte[] message = msg.getData().array();
+                }catch(InterruptedException e){
+                    System.exit(2);
+                }
+                if(!retransmitList.contains(msg)){
+                    retransmitList.add(msg);
+                }
+                myWait(10000);
+
+            }while(retransmitList.contains(msg));
+
+            while(true){
+                int count;
+                byte[] message = msg.getData().array();
+
+                for(Message msg: printingList){
+                    byte[] bytes = msg.getData().array();
+                    int src= bytes[0] >> 3;
+                    int dst= (bytes[0] >> 1) & 0b11;
+                    int nxt= bytes[1] >>5;
+                    int seq= (bytes[1] >> 2) & 0b111;
+                    int frag= bytes[1] & 0b11;
+                    int payld= bytes[2] >> 3;
+
+                }
+            }
+        }
     }
 
     private class receiveThread extends Thread {
@@ -369,7 +511,7 @@ public class MyProtocol{
                             }
 
                             propagatePure(10000, m);
-                        }else if(directions.size() == 4){
+                        }else if(directions.size() == 4 && m.getData().get(0) >> 5 == 0b010 ){ // added the a&& to avoid this if
                             // all the rest and after DVR
                             // new format iii00000 0dd-hhh-nn
                             if(m.getData().get(0) >> 5 == 0b010 && ((m.getData().get(1) & 0b11100) >> 2) != 0b11){ // 010 is the identifier for DVR
@@ -401,38 +543,89 @@ public class MyProtocol{
 
                                 ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
-                                for(int i = 0; i < 10; i++){
-                                    slottedMAC(new Message(MessageType.DATA, bufferPacket));
+//                                for(int i = 0; i < 10; i++){
+//                                    slottedMAC(new Message(MessageType.DATA, bufferPacket));
+//                                }
+                                while(System.currentTimeMillis() - globalTimer < 180000){
+                                    propagatePureTables(15000, new Message(MessageType.DATA, bufferPacket));
                                 }
-//                                propagatePure(15000, new Message(MessageType.DATA, bufferPacket));
+
 
                             }
-                        }else if (m.getData().get() >> 5 == 0b0) {
-                            // this is if you receive text and you are the destination
-                            
-                            // first check if youre the next hop and then check if youre the destination
-                            
-                            if((m.getData().get(2) >> 5) == client.getAddress()){ // first check if you where the next hop
-                                int src = m.getData().get(1) >> 5;
-                                int dst = m.getData().get(1) >> 3 & 0b11;
-                                int seq = m.getData().get(1) & 0b11;
-                                int nextHop = m.getData().get(2) >> 5;
+//                        }else if (m.getData().get() >> 5 == 0b0) {
+//                            // this is if you receive text and you are the destination
+//
+//                            // first check if you're the next hop and then check if you're the destination
+//
+//                            if((m.getData().get(2) >> 5) == client.getAddress()){ // first check if you where the next hop
+//                                int src = m.getData().get(1) >> 5;
+//                                int dst = m.getData().get(1) >> 3 & 0b11;
+//                                int seq = m.getData().get(1) & 0b11;
+//                                int nextHop = m.getData().get(2) >> 5;
+//
+//                                // if youre the next address do nothing but printing
+//                                if(dst == client.getAddress()){
+//                                    printMessage(m);
+//                                    packetAck.add(new PacketACK(System.currentTimeMillis(), m));
+//                                }else{
+//                                    // send it in rout to the destination
+//                                    // make use of the forwarding table and then reformat the packet to full send
+//                                }
+//                                // acknoledge to the sender the text arrived
+//
+//                            }
+//                            // this is if you are not the destination
+//                            // check if you are using dvr
+//
+//                            // print the message later in the parsing
+                        } else if (m.getData().get(0) >> 5 == 0b0 && !printingList.contains(m)) { // get() wasnt indxed
+                            //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
+                            //ss=source; dd= destination; nn= next hop; qqq= seq no; ff=fragmentation
+                            //ff== 00 -> no fragmentation; ff== 01 ->frag + first packet from frag;
+                            //ff== 10 -> frag + last packet
 
-                                // if youre the next address do nothing but printing
-                                if(dst == client.getAddress()){
-                                    printMessage(m);
-                                    packetAck.add(new PacketACK(System.currentTimeMillis(), m));
-                                }else{
-                                    // send it in rout to the destination
-                                    // make use of the forwarding table and then reformat the packet to full send
+                            int src= m.getData().get(0) >> 3;
+                            int dst= (m.getData().get(0) >> 1) & 0b11;
+                            int nxt= m.getData().get(1) >>5;
+                            int seq= (m.getData().get(1) >> 2) & 0b111;
+                            int frag= m.getData().get(1) & 0b11;
+                            int payld= m.getData().get(2) >> 3;
+                            if(dst == client.getAddress()){
+
+                                byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
+                                Message text = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
+                                new ackThread(text).start();
+                                if (frag == 0b00){
+                                    //send message to print buffer
+                                    if(!printingList.contains(m)){
+                                        printMessage(m);
+                                    }
+                                } else{
+
+                                    //send message fragmentation section
                                 }
-                                // acknoledge to the sender the text arrived
+                                printingList.add(m);
+                            } else if (nxt == client.getAddress()) {
+                                //send packet to updated nxt hop based on Ftable
+                                //dst remains same, source is us, nxt is modified
+                                byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
+                                new ackThread(new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack))).start();
 
+                                int newNextHop = forwardingTable.getNextHop(client.getAddress());
+                                byte[] header = new byte[3];
+                                header[0] = (byte) ((client.getAddress() <<3) | dst <<1);
+                                header[1] = (byte) ((newNextHop<<5) | (seq << 2) | frag);
+                                header[2] = m.getData().get(2);
+
+                                byte[] payload = Arrays.copyOfRange(m.getData().array(),3,m.getData().array().length); // could be -1
+
+                                byte[] packet = new byte[header.length+payload.length];
+                                System.arraycopy(header,0, packet,0,header.length);
+                                System.arraycopy(payload,0, packet, header.length, payload.length);
+
+                            } else if (nxt != client.getAddress()) {
+                                //drop; nothing done
                             }
-                            // this is if you are not the destination
-                            // check if you are using dvr
-
-                            // print the message later in the parsing
                         }
                     } else if (m.getType() == MessageType.DATA_SHORT){
 //                        System.out.print("DATA_SHORT: ");
@@ -456,20 +649,33 @@ public class MyProtocol{
                             endFlood = true;
                         }else if(m.getData().get(0) >> 5 == 0b0){
                             // check if pending is waiting on this ack to avoid retransmission
-                            for(Message p: pending){
-                                // parse the m and see if it is contained here
-                                if(p.getData().get(1) == m.getData().get(1)){
-                                    pending.remove(p);
-                                    ACK = true;
+                            int src = m.getData().get(0) >> 3;
+                            int dst = m.getData().get(0) >> 1 & 0b11;
+                            int sequence = m.getData().get(1) & 0b11111;
+                            if(client.getAddress() == dst){
+                                Message temp = null;
+                                for(Message msg : retransmitList){
+                                    byte[] info = msg.getData().array();
+                                    int srcofMsg = info[0] >> 3;
+                                    int nextHop = info[1] >> 5; // 000SSDD0
+                                    int sequenceOfNumWFlag = info[1] & 0b11111; // 000QQQFF
+                                    if(srcofMsg == dst && nextHop == src && sequenceOfNumWFlag == sequence){
+//                                        retransmitList.remove(msg);
+                                        System.out.println("removed a message after ack");
+                                        temp = msg;
+                                        break;
+                                    }
                                 }
+                                retransmitList.remove(temp);
+
                             }
                         }
                     } else if (m.getType() == MessageType.DONE_SENDING){
-                        System.out.println("DONE_SENDING");
+//                        System.out.println("DONE_SENDING");
                     } else if (m.getType() == MessageType.HELLO){
-                        System.out.println("HELLO");
+//                        System.out.println("HELLO");
                     } else if (m.getType() == MessageType.SENDING){
-                        System.out.println("SENDING");
+//                        System.out.println("SENDING");
                     } else if (m.getType() == MessageType.END){
                         System.out.println("END");
                         System.exit(0);
@@ -477,9 +683,20 @@ public class MyProtocol{
                 } catch (InterruptedException e){
                     System.err.println("Failed to take from queue: "+e);
                 }
-                ackRecieved();
+//                ackRecieved();
             }
         }
     }
 }
 
+//        sending node:     One list for retransmitting, aka the list with packets waiting to be acknowledged, these packets have a timer.
+//        Stop timer when ack comes in. If timer reaches 0, resend packet.
+//        receiving node:   3 lists
+//        -   AckList:    List of packets that have an acknowledgement sent. It stays here for 10 seconds,
+//        waiting to see if the same packet will be received, meaning the ack got lost.
+//
+//        -   BufferList: Whenever a packet is acked in the first list, it enters the second list if the
+//        fragmentation bits are set to 01 or 10 AND they have the same sequence number.
+//
+//        -   PrintList:  List of the packets that leave the BufferList (in case it was fragmented and completed back) or
+//        AckList if the fragmentation bits are set to 00.

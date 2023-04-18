@@ -44,7 +44,11 @@
 //                    }
 //                }
 //                case HELP -> System.out.println(menu);
-//                case SUBMARINES -> System.out.println("You are connected with nodes:");    // TODO get the nodes
+//                case SUBMARINES -> {
+//                    System.out.println("You are connected with the following submarines: ");
+//                                // TODO get the nodes
+//                    }
+//
 //
 //
 //                case TABLE -> {

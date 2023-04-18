@@ -150,9 +150,13 @@ public class Client {
                             temp.put(messageBuffer);
                             temp.rewind();
                             if( shortData ){
-                                receivedQueue.put( new Message(MessageType.DATA_SHORT, temp) );
+                                if(!receivedQueue.contains(new Message(MessageType.DATA_SHORT, temp))){
+                                    receivedQueue.put( new Message(MessageType.DATA_SHORT, temp) );
+                                }
                             } else {
-                                receivedQueue.put( new Message(MessageType.DATA, temp) );
+                                if(!receivedQueue.contains(new Message(MessageType.DATA, temp))){
+                                    receivedQueue.put( new Message(MessageType.DATA, temp) );
+                                }
                             }                            
                             messageReceiving = false;
                         }
