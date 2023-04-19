@@ -1,16 +1,11 @@
 import client.*;
 
-import javax.crypto.spec.PSource;
-import java.io.StringBufferInputStream;
 import java.nio.ByteBuffer;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.stream.Collector;
-import java.util.stream.Collectors;
 
 /**
  * This is just some example code to show you how to interact
@@ -42,8 +37,9 @@ public class MyProtocol{
 //    private List<PacketACK> packetAck = new ArrayList<>();
 //    private List<Message> pending = new ArrayList<>();
 
+    private List<ObjReceived> printingList = new ArrayList<>();
     private List<Message> retransmitList = new ArrayList<>();//ack list
-    private List<Message> printingList = new ArrayList<>();
+    private List<ObjReceived> ackList = new ArrayList<>();
     private HashMap<Byte,List<Message>> fragmentationMap = new HashMap<>();
     private long globalTimer;
 
@@ -82,7 +78,7 @@ public class MyProtocol{
         boolean trying = true;
         double p = 0.30;
         while(trying){
-            myWait(900);
+            myWait(800);
             if (new Random().nextInt(100) < p * 100) {
                 sendingQueue.put(msg);
                 trying = false;
@@ -161,7 +157,7 @@ public class MyProtocol{
         try{
             long start = System.currentTimeMillis();
             while(System.currentTimeMillis()-start < ms){
-                myWait(14000);
+                myWait(10000);
                 MAC(msg);
             }
 
@@ -187,34 +183,65 @@ public class MyProtocol{
             Scanner scan = new Scanner(System.in);
             String text = scan.nextLine();
             updateSeq();
-            if(text.length() > 30){
-//                int packetNumber  = ;
-            }else{ //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
-                Message message = null;
-                for(int i = 0; i < 3; i++){
-                    byte[] header = new byte[3];
-                    byte[] payload = text.getBytes();
+            if(Objects.equals(text, "!table")){
+                forwardingTable.print();
+            }else{
+                if(text.length() >= 30 && text.length()<=58){ // this is for longer packets
+                    Message message = null;
+                    String part1 = text.substring(0,28);
+                    String part2 = text.substring(29);
+                    for(int j = 0; j < 2; j++){
+                        for(int i = 0; i < 3; i++){
+                            byte[] header = new byte[3];
+                            byte[] payload;
+                            if(j == 0){
+                                payload = part1.getBytes();
+                            }else{
+                                payload = part2.getBytes();
+                            }
 //                    System.out.println("Sending a message from ");
-                    header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
-                    header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2); // no frag
-                    header[2] = (byte) (payload.length << 3);
-                    byte[] packet = new byte[header.length+payload.length];
-                    System.arraycopy(header,0, packet,0,header.length);
-                    System.arraycopy(payload,0, packet, header.length, payload.length);
-                    ByteBuffer msg = ByteBuffer.wrap(packet);
-                    message = new Message(MessageType.DATA, msg);
-                    new ackThread(message).start();
+                            header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+                            header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2 | (j==0?0b01:0b10));
+                            header[2] = (byte) (payload.length << 3);
+                            byte[] packet = new byte[header.length+payload.length];
+                            System.arraycopy(header,0, packet,0,header.length);
+                            System.arraycopy(payload,0, packet, header.length, payload.length);
+                            ByteBuffer msg = ByteBuffer.wrap(packet);
+                            message = new Message(MessageType.DATA, msg);
+                            new retransmitList(message).start();
+                        }
+                    }
+
+                } else if (text.length()>59) {
+                    System.out.println("Text is too long, please shorten it");
+                } else{ //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
+                    Message message = null;
+                    for(int i = 0; i < 3; i++){
+                        byte[] header = new byte[3];
+                        byte[] payload = text.getBytes();
+//                    System.out.println("Sending a message from ");
+                        header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+                        header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2); // no frag
+                        header[2] = (byte) (payload.length << 3);
+                        byte[] packet = new byte[header.length+payload.length];
+                        System.arraycopy(header,0, packet,0,header.length);
+                        System.arraycopy(payload,0, packet, header.length, payload.length);
+                        ByteBuffer msg = ByteBuffer.wrap(packet);
+                        message = new Message(MessageType.DATA, msg);
+                        new retransmitList(message).start();
+                    }
                 }
             }
+
 
         }
     }
 
     public void fragmentationFinder(byte key, Message frag){
         if(fragmentationMap.containsKey(key)){
-            // wew know it has two then we print them in order
+            // we know it has two then we print them in order
             List<Message> fragments = fragmentationMap.get(key);
-            if((fragments.get(0).getData().array()[1] & 0b11) < (frag.getData().array()[1] & 0b11)){
+            if((fragments.get(0).getData().array()[1] & 0b1) < (frag.getData().array()[1] & 0b1)){
                 // print frag first
                 printMessage(frag);
                 printMessage(fragments.get(0));
@@ -328,8 +355,8 @@ public class MyProtocol{
             addressaPkt[4] = (byte) (directions.get(3) & 0b1111111);
             ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 
-            while(System.currentTimeMillis() - globalTimer < 120000){
-                myWait(1200);
+            while(System.currentTimeMillis() - globalTimer < 90000){
+                myWait(1000);
                 System.out.println("Propagating full list");
                 try{
                     MAC(new Message(MessageType.DATA, msg));
@@ -342,7 +369,7 @@ public class MyProtocol{
         }
         System.out.println("Before timer");
         // habia un receiving queue aca
-        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 120000){
+        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 90000){
         }
 
         Collections.sort(directions); // sort the list so the index of all
@@ -385,8 +412,8 @@ public class MyProtocol{
 
         ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
-        while(System.currentTimeMillis() - globalTimer < 300000){
-            propagatePureTables(30000, new Message(MessageType.DATA, bufferPacket));
+        while(System.currentTimeMillis() - globalTimer < 180000){
+            propagatePureTables(10000, new Message(MessageType.DATA, bufferPacket));
         }
         System.out.println("Finish propagating tables");
 
@@ -432,9 +459,82 @@ public class MyProtocol{
         new MyProtocol(SERVER_IP, SERVER_PORT, frequency);
     }
 
+    private class printThread extends Thread{
+        private Message msg;
+        public printThread(Message msg){
+            super();
+            this.msg = msg;
+        }
+        public void run(){
+            boolean b;
+            do{
+                b = false;
+                ObjReceived temp = null;
+
+                for(ObjReceived obj: printingList){
+                    if(System.currentTimeMillis()-obj.timestamp > 10000 && obj.msg == msg){
+                        temp = obj;
+                    }
+                }
+                printingList.remove(temp);
+                for(ObjReceived obj: printingList){
+                    if(obj.msg == msg){
+                        b = true;
+                    }
+                }
+                // ---
+                boolean print = true;
+                for(ObjReceived obj: printingList){
+                    if(obj.msg == msg){
+                        print = false;
+                        obj.timestamp = System.currentTimeMillis();
+                    }
+                }
+                if(print){
+                    printMessage(msg);
+                    printingList.add(new ObjReceived(System.currentTimeMillis(), msg));
+                }
+
+            }while(b);
+        }
+    }
+
     private class ackThread extends Thread{
-        private final Message msg;
+        private Message msg;
         public ackThread(Message msg){
+            super();
+            this.msg = msg;
+        }
+
+        public void run(){
+            boolean b;
+
+            do{
+                try {
+                    MAC(msg);
+                } catch (InterruptedException e) {
+                    System.exit(2);
+                }
+                b = false;
+                ObjReceived temp = null;
+                for(ObjReceived obj: ackList){
+                    if(System.currentTimeMillis()-obj.timestamp > 10000 && obj.msg == msg){
+                        temp = obj;
+                    }
+                }
+                ackList.remove(temp);
+                for(ObjReceived obj: ackList){
+                    if(obj.msg == msg){
+                        b = true;
+                    }
+                }
+            }while(b);
+        }
+    }
+
+    private class retransmitList extends Thread{
+        private final Message msg;
+        public retransmitList(Message msg){
             super();
             this.msg = msg;
         }
@@ -454,22 +554,6 @@ public class MyProtocol{
                 myWait(10000);
 
             }while(retransmitList.contains(msg));
-
-            while(true){
-                int count;
-                byte[] message = msg.getData().array();
-
-                for(Message msg: printingList){
-                    byte[] bytes = msg.getData().array();
-                    int src= bytes[0] >> 3;
-                    int dst= (bytes[0] >> 1) & 0b11;
-                    int nxt= bytes[1] >>5;
-                    int seq= (bytes[1] >> 2) & 0b111;
-                    int frag= bytes[1] & 0b11;
-                    int payld= bytes[2] >> 3;
-
-                }
-            }
         }
     }
 
@@ -546,39 +630,13 @@ public class MyProtocol{
 //                                for(int i = 0; i < 10; i++){
 //                                    slottedMAC(new Message(MessageType.DATA, bufferPacket));
 //                                }
-                                while(System.currentTimeMillis() - globalTimer < 300000){
+                                while(System.currentTimeMillis() - globalTimer < 180000){
                                     propagatePureTables(15000, new Message(MessageType.DATA, bufferPacket));
                                 }
 
 
                             }
-//                        }else if (m.getData().get() >> 5 == 0b0) {
-//                            // this is if you receive text and you are the destination
-//
-//                            // first check if you're the next hop and then check if you're the destination
-//
-//                            if((m.getData().get(2) >> 5) == client.getAddress()){ // first check if you where the next hop
-//                                int src = m.getData().get(1) >> 5;
-//                                int dst = m.getData().get(1) >> 3 & 0b11;
-//                                int seq = m.getData().get(1) & 0b11;
-//                                int nextHop = m.getData().get(2) >> 5;
-//
-//                                // if youre the next address do nothing but printing
-//                                if(dst == client.getAddress()){
-//                                    printMessage(m);
-//                                    packetAck.add(new PacketACK(System.currentTimeMillis(), m));
-//                                }else{
-//                                    // send it in rout to the destination
-//                                    // make use of the forwarding table and then reformat the packet to full send
-//                                }
-//                                // acknoledge to the sender the text arrived
-//
-//                            }
-//                            // this is if you are not the destination
-//                            // check if you are using dvr
-//
-//                            // print the message later in the parsing
-                        } else if (m.getData().get(0) >> 5 == 0b0 && !printingList.contains(m)) { // get() wasnt indxed
+                        } else if (m.getData().get(0) >> 5 == 0b0 && !ackList.contains(m)) { // get() wasnt indxed
                             //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
                             //ss=source; dd= destination; nn= next hop; qqq= seq no; ff=fragmentation
                             //ff== 00 -> no fragmentation; ff== 01 ->frag + first packet from frag;
@@ -593,18 +651,21 @@ public class MyProtocol{
                             if(dst == client.getAddress()){
 
                                 byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
-                                Message text = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
-                                new ackThread(text).start();
+                                Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
+                                ackList.add(new ObjReceived(System.currentTimeMillis(), m));
+                                new ackThread(msg).start();
+                                // ack thread
+
+
                                 if (frag == 0b00){
                                     //send message to print buffer
-                                    if(!printingList.contains(m)){
-                                        printMessage(m);
-                                    }
-                                } else{
+                                    new printThread(m);
 
-                                    //send message fragmentation section
+                                } else{
+                                    byte[] id = new byte[1];
+                                    id[0]= (byte) ((src <<6) | (dst <<4) | (seq <<1) | ((frag &0b10) >>1));
+                                    fragmentationFinder(id[0], m);
                                 }
-                                printingList.add(m);
                             } else if (nxt == client.getAddress()) {
                                 //send packet to updated nxt hop based on Ftable
                                 //dst remains same, source is us, nxt is modified
@@ -660,7 +721,6 @@ public class MyProtocol{
                                     int nextHop = info[1] >> 5; // 000SSDD0
                                     int sequenceOfNumWFlag = info[1] & 0b11111; // 000QQQFF
                                     if(srcofMsg == dst && nextHop == src && sequenceOfNumWFlag == sequence){
-//                                        retransmitList.remove(msg);
                                         System.out.println("removed a message after ack");
                                         temp = msg;
                                         break;
@@ -683,7 +743,7 @@ public class MyProtocol{
                 } catch (InterruptedException e){
                     System.err.println("Failed to take from queue: "+e);
                 }
-//                ackRecieved();
+
             }
         }
     }
