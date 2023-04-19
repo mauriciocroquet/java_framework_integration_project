@@ -33,6 +33,8 @@ public class MyProtocol{
     private ForwardingTable forwardingTable;
     private boolean ACK = false;
 
+    private List<String> names = new ArrayList<>();
+
     private int sequenceNum = 0;
 //    private List<PacketACK> packetAck = new ArrayList<>();
 //    private List<Message> pending = new ArrayList<>();
@@ -40,6 +42,7 @@ public class MyProtocol{
     private List<ObjReceived> printingList = new ArrayList<>();
     private List<Message> retransmitList = new ArrayList<>();//ack list
     private List<ObjReceived> ackList = new ArrayList<>();
+    private List<String> printed = new ArrayList<>();
     private HashMap<Byte,List<Message>> fragmentationMap = new HashMap<>();
     private long globalTimer;
 
@@ -50,12 +53,17 @@ public class MyProtocol{
         ByteBuffer bb = msg.getData();
         byte[] bytes = bb.array();
         int payloadLen = (bytes[2] >> 3);
+        String text = "";
         int sender = bytes[1] >> 7;
-        System.out.print("[Message]: "); // change this sender later
         for(int i = 0; i < payloadLen; i++){
-            System.out.print((char)bytes[3+i]);
+            text += (char)bytes[3+i];
         }
-        System.out.println();
+        if(!printed.contains(text)){
+            System.out.print("[Message]: "); // change this sender later
+            System.out.println(text);
+        }
+        printed.add(text);
+
     }
     
 //    public void fullSend(Message m){
@@ -78,7 +86,7 @@ public class MyProtocol{
         boolean trying = true;
         double p = 0.30;
         while(trying){
-            myWait(800);
+            myWait(3000);
             if (new Random().nextInt(100) < p * 100) {
                 sendingQueue.put(msg);
                 trying = false;
@@ -157,7 +165,7 @@ public class MyProtocol{
         try{
             long start = System.currentTimeMillis();
             while(System.currentTimeMillis()-start < ms){
-                myWait(10000);
+                myWait(13000);
                 MAC(msg);
             }
 
@@ -209,6 +217,7 @@ public class MyProtocol{
                             ByteBuffer msg = ByteBuffer.wrap(packet);
                             message = new Message(MessageType.DATA, msg);
                             new retransmitList(message).start();
+                            myWait(1000);
                         }
                     }
 
@@ -229,6 +238,7 @@ public class MyProtocol{
                         ByteBuffer msg = ByteBuffer.wrap(packet);
                         message = new Message(MessageType.DATA, msg);
                         new retransmitList(message).start();
+                        myWait(1000);
                     }
                 }
             }
@@ -355,9 +365,9 @@ public class MyProtocol{
             addressaPkt[4] = (byte) (directions.get(3) & 0b1111111);
             ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 
-            while(System.currentTimeMillis() - globalTimer < 90000){
-                myWait(1000);
-                System.out.println("Propagating full list");
+            while(System.currentTimeMillis() - globalTimer < 100000){
+//                myWait(1000);
+//                System.out.println("Propagating full list");
                 try{
                     MAC(new Message(MessageType.DATA, msg));
 
@@ -367,17 +377,17 @@ public class MyProtocol{
             }
 
         }
-        System.out.println("Before timer");
+//        System.out.println("Before timer");
         // habia un receiving queue aca
-        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 90000){
+        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 100000){
         }
 
         Collections.sort(directions); // sort the list so the index of all
                                       // of the nodes can be reduced to two by using their respective index
 
-        for(Integer direction: directions){
-            System.out.print(direction + ", ");
-        }
+//        for(Integer direction: directions){
+//            System.out.print(direction + ", ");
+//        }
         System.out.println(" Should be completed ");
         client.setAddress(directions.indexOf(address));
         // Start of DVR
@@ -385,7 +395,7 @@ public class MyProtocol{
 
 
         myWait(30000);
-        System.out.println("after my wait");
+//        System.out.println("after my wait");
         receivedQueue.clear();
         sendingQueue.clear();
 
@@ -412,10 +422,11 @@ public class MyProtocol{
 
         ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
-        while(System.currentTimeMillis() - globalTimer < 180000){
-            propagatePureTables(10000, new Message(MessageType.DATA, bufferPacket));
+        while(System.currentTimeMillis() - globalTimer < 2500000){
+//            System.out.println("Still sending -- propagation");
+            propagatePureTables(7000, new Message(MessageType.DATA, bufferPacket));
         }
-        System.out.println("Finish propagating tables");
+//        System.out.println("Finish propagating tables");
 
 //        System.out.println("Outside");
 //        for(int i = 0; i < 10; i++){
@@ -466,36 +477,32 @@ public class MyProtocol{
             this.msg = msg;
         }
         public void run(){
-            boolean b;
-            do{
-                b = false;
-                ObjReceived temp = null;
 
-                for(ObjReceived obj: printingList){
-                    if(System.currentTimeMillis()-obj.timestamp > 10000 && obj.msg == msg){
-                        temp = obj;
-                    }
+            // ---
+            boolean print = true;
+            for(ObjReceived obj: printingList){
+//                System.out.println("into the loop");
+                if(obj.msg == msg && System.currentTimeMillis()- obj.timestamp < 10000){
+//                    System.out.println("Print shouldnt happen");
+                    print = false;
+                    obj.timestamp = System.currentTimeMillis();
+                    break;
                 }
-                printingList.remove(temp);
-                for(ObjReceived obj: printingList){
-                    if(obj.msg == msg){
-                        b = true;
-                    }
-                }
-                // ---
-                boolean print = true;
-                for(ObjReceived obj: printingList){
-                    if(obj.msg == msg){
-                        print = false;
-                        obj.timestamp = System.currentTimeMillis();
-                    }
-                }
-                if(print){
-                    printMessage(msg);
-                    printingList.add(new ObjReceived(System.currentTimeMillis(), msg));
-                }
+            }
 
-            }while(b);
+            if(print){
+                printMessage(msg);
+                printingList.add(new ObjReceived(System.currentTimeMillis(), msg));
+            }
+            ObjReceived temp = null;
+            for(ObjReceived obj: printingList){
+//                System.out.println("into the loop");
+                if(System.currentTimeMillis()- obj.timestamp > 10000){
+                 temp = obj;
+                }
+            }
+            printingList.remove(temp);
+
         }
     }
 
@@ -510,11 +517,10 @@ public class MyProtocol{
             boolean b;
 
             do{
-                try {
-                    MAC(msg);
-                } catch (InterruptedException e) {
-                    System.exit(2);
-                }
+
+                propagatePure(600,msg);
+//                System.out.println("sending ack");
+
                 b = false;
                 ObjReceived temp = null;
                 for(ObjReceived obj: ackList){
@@ -526,6 +532,7 @@ public class MyProtocol{
                 for(ObjReceived obj: ackList){
                     if(obj.msg == msg){
                         b = true;
+//                        System.out.println("received retransmit");
                     }
                 }
             }while(b);
@@ -544,6 +551,7 @@ public class MyProtocol{
             do{
                 try{
                     MAC(msg);
+//                    System.out.println("Sending once");
                     byte[] message = msg.getData().array();
                 }catch(InterruptedException e){
                     System.exit(2);
@@ -604,7 +612,7 @@ public class MyProtocol{
                                 int sender = m.getData().get(1) & 0b11;
 
                                 hops++;
-                                System.out.println("It took: " + hops + " hops to get from " + src + " to " + client.getAddress() + ", nb: " + sender );
+//                                System.out.println("It took: " + hops + " hops to get from " + src + " to " + client.getAddress() + ", nb: " + sender );
                                 ForwardingTable neighbour = new ForwardingTable(m.getData().array());
                                 if(hops < forwardingTable.getCost(src)){
                                     forwardingTable.newRoute(src,hops,sender);
@@ -612,7 +620,7 @@ public class MyProtocol{
 
                                 forwardingTable.mergeTables(neighbour);
                                 forwardingTable.print();
-                                // now change sender and put it in the sending queue
+                                // now change sender anda put it in the sending queue
                                 //send a new updated message of the FT
                                 byte[] header =new byte[2];
                                 header[0] = (byte) (0b010 << 5);
@@ -630,8 +638,10 @@ public class MyProtocol{
 //                                for(int i = 0; i < 10; i++){
 //                                    slottedMAC(new Message(MessageType.DATA, bufferPacket));
 //                                }
-                                while(System.currentTimeMillis() - globalTimer < 180000){
-                                    propagatePureTables(15000, new Message(MessageType.DATA, bufferPacket));
+                                while(System.currentTimeMillis() - globalTimer < 300000){
+//                                    System.out.println("Still sending -- propagation");
+                                    System.out.println("table propagating");
+                                    propagatePureTables(4000, new Message(MessageType.DATA, bufferPacket));
                                 }
 
 
@@ -652,14 +662,15 @@ public class MyProtocol{
 
                                 byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
-                                ackList.add(new ObjReceived(System.currentTimeMillis(), m));
-                                new ackThread(msg).start();
+//                                ackList.add(new ObjReceived(System.currentTimeMillis(), m));
+//                                new ackThread(msg).start();
+                                propagatePure(600,msg);
                                 // ack thread
-
 
                                 if (frag == 0b00){
                                     //send message to print buffer
-                                    new printThread(m);
+
+                                    new printThread(m).start();
 
                                 } else{
                                     byte[] id = new byte[1];
@@ -670,7 +681,10 @@ public class MyProtocol{
                                 //send packet to updated nxt hop based on Ftable
                                 //dst remains same, source is us, nxt is modified
                                 byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
-                                new ackThread(new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack))).start();
+                                Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
+//                                ackList.add(new ObjReceived(System.currentTimeMillis(), m));
+//                                new ackThread(msg).start();
+                                propagatePure(600,msg);
 
                                 int newNextHop = forwardingTable.getNextHop(client.getAddress());
                                 byte[] header = new byte[3];
@@ -693,12 +707,12 @@ public class MyProtocol{
                         if(m.getData().get(0) >> 5 == 0b010 && directions.size() < 4){
                             int neighbour = m.getData().get(1) & 0b01111111;
                             if(!directions.contains(neighbour)) {
-                                System.out.println("New nb: " + neighbour);
+//                                System.out.println("New nb: " + neighbour);
                                 directions.add(neighbour);
-                                for(Integer direction: directions){
-                                    System.out.print(direction + ", ");
-                                }
-                                System.out.println(" list up to this point ");
+//                                for(Integer direction: directions){
+//                                    System.out.print(direction + ", ");
+//                                }
+//                                System.out.println(" list up to this point ");
                                 if (directions.size() < 4) {
                                     propagatePure(300,m);
                                 }else if(directions.size() == 4){
@@ -721,7 +735,7 @@ public class MyProtocol{
                                     int nextHop = info[1] >> 5; // 000SSDD0
                                     int sequenceOfNumWFlag = info[1] & 0b11111; // 000QQQFF
                                     if(srcofMsg == dst && nextHop == src && sequenceOfNumWFlag == sequence){
-                                        System.out.println("removed a message after ack");
+//                                        System.out.println("removed a message after ack");
                                         temp = msg;
                                         break;
                                     }
@@ -755,8 +769,8 @@ public class MyProtocol{
 //        -   AckList:    List of packets that have an acknowledgement sent. It stays here for 10 seconds,
 //        waiting to see if the same packet will be received, meaning the ack got lost.
 //
-//        -   BufferList: Whenever a packet is acked in the first list, it enters the second list if the
+//        -   FragmentedList: Whenever a packet is acked in the first list, it enters the second list if the
 //        fragmentation bits are set to 01 or 10 AND they have the same sequence number.
 //
-//        -   PrintList:  List of the packets that leave the BufferList (in case it was fragmented and completed back) or
+//        -   PrintList:  List of the packets that leave the FragmentedList (in case it was fragmented and completed back) or
 //        AckList if the fragmentation bits are set to 00.

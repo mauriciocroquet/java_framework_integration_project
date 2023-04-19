@@ -95,7 +95,7 @@ public class ForwardingTable {
     public void print(){
         System.out.println("[ Dst | Cst | NHp ]");
         for(int i = 0; i < 4; ++i){
-            System.out.println("[  " + fTable[i][0] + "  |  " + fTable[i][1] + "  |  " + fTable[i][2] + "  ]");
+            System.out.println("[  " + fTable[i][0] + "  |" + (fTable[i][1]==4?(" INF "):("  "+fTable[i][1]+"  ")) + "|  " + fTable[i][2] + "  ]");
 
         }
     }
