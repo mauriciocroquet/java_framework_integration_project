@@ -7,11 +7,10 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-/**
- * This is just some example code to show you how to interact
- * with the server using the provided client and two queues.
- * Feel free to modify this code in any way you like!
- */
+
+
+
+import java.lang.Math;
 
 public class MyProtocol{
 
@@ -46,20 +45,36 @@ public class MyProtocol{
     private HashMap<Byte,List<Message>> fragmentationMap = new HashMap<>();
     private long globalTimer;
 
+    private boolean tryAgain = true;
 
-
+    private int addressingTime = 45000;
+    private int waiter = 180000;
+    private int extra = 0;
+    private List<String> users = new ArrayList<>();
+    private boolean stayAlive = true;
+    private String menu =
+                    "COMMANDS: \n" +
+                    "!name [NAME] ............ Enter your name by typing !name, a spacebar, then a name of your choice. \n" +
+                    "!help ................... Print out these commands if you forget what there are. \n" +
+                    "!submarines ............. Display all current online submarines (nodes) in the chat. \n" +
+                    "!table .................. Print your routing table \n" +
+                    "!exit ................... Exit the program and any chat you are in. \n";
 
     public void printMessage(Message msg){
         ByteBuffer bb = msg.getData();
         byte[] bytes = bb.array();
-        int payloadLen = (bytes[2] >> 3);
+        int payloadLen = (bytes[2] >> 2);
         String text = "";
-        int sender = bytes[1] >> 7;
+        int sender = bytes[2] & 0b11;
         for(int i = 0; i < payloadLen; i++){
             text += (char)bytes[3+i];
         }
-        if(!printed.contains(text)){
-            System.out.print("[Message]: "); // change this sender later
+        List<String> words = List.of(text.split(" "));
+        if(words.size() == 2 && words.get(0).equals("!name")){
+            users.set(sender, words.get(1));
+        }
+        if(!printed.contains(text) && !(words.size() == 2 && words.get(0).equals("!name"))){
+            System.out.print("[" + users.get(sender)+"]: "); // change this sender later
             System.out.println(text);
         }
         printed.add(text);
@@ -184,17 +199,45 @@ public class MyProtocol{
     }
 
     public void chatRoom(){
-        while(!receivedQueue.isEmpty()){
+        while(System.currentTimeMillis() < addressingTime+waiter+10000){
             // wait
         }
-        while (true){
+        System.out.println(menu);
+        while (stayAlive){
             System.out.print("["+client.getAddress()+"]: ");
             Scanner scan = new Scanner(System.in);
             String text = scan.nextLine();
+            List<String> words = List.of(text.split(" "));
             updateSeq();
+            if(words.size() == 2 && words.get(0).equals("!name")){
+                users.set(client.getAddress(), words.get(1));
+                System.out.println("Name is set to: " + words.get(1));
+            }
+            if(Objects.equals(text, "!help")) {
+                System.out.println(menu);
+            }
+            if(Objects.equals(text, "!submarines")){
+                if (users.size() <= 1) {
+                    System.out.println("There are no other submarines in the chat.");
+                } else {
+                    for(String name : users){
+                        System.out.println(name);
+                    }
+                }
+            }
             if(Objects.equals(text, "!table")){
+                System.out.println("This is your forwarding table: \n");
                 forwardingTable.print();
-            }else{
+            }
+            if(Objects.equals(text, "!exit")){
+//                System.out.println("OK, exiting chatroom");
+//                stayAlive = false;
+//                byte[] goodbye = new byte[2];
+//                goodbye[0] = 0b011<<5;
+//                goodbye[1] = (byte) client.getAddress();
+//                propagatePure(1000, new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(goodbye)));
+//                System.exit(0);
+            } else {
                 if(text.length() >= 30 && text.length()<=58){ // this is for longer packets
                     Message message = null;
                     String part1 = text.substring(0,28);
@@ -211,7 +254,7 @@ public class MyProtocol{
 //                    System.out.println("Sending a message from ");
                             header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
                             header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2 | (j==0?0b01:0b10));
-                            header[2] = (byte) (payload.length << 3);
+                            header[2] = (byte) (payload.length << 2 | client.getAddress());
                             byte[] packet = new byte[header.length+payload.length];
                             System.arraycopy(header,0, packet,0,header.length);
                             System.arraycopy(payload,0, packet, header.length, payload.length);
@@ -232,7 +275,7 @@ public class MyProtocol{
 //                    System.out.println("Sending a message from ");
                         header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
                         header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2); // no frag
-                        header[2] = (byte) (payload.length << 3);
+                        header[2] = (byte) (payload.length << 2 | client.getAddress());
                         byte[] packet = new byte[header.length+payload.length];
                         System.arraycopy(header,0, packet,0,header.length);
                         System.arraycopy(payload,0, packet, header.length, payload.length);
@@ -265,6 +308,7 @@ public class MyProtocol{
             List<Message> values = new ArrayList<>();
             values.add(frag);
             fragmentationMap.put(key, values);
+
         }
     }
 
@@ -285,7 +329,7 @@ public class MyProtocol{
     }
 
     public MyProtocol(String server_ip, int server_port, int frequency){
-        globalTimer = System.currentTimeMillis();
+
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
 
@@ -293,76 +337,148 @@ public class MyProtocol{
 
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
         int address = 0;
-        while(directions.size() < 4){
+
+        System.out.println("Press enter to start: ");
+        Scanner scan = new Scanner(System.in);
+        String text = scan.nextLine();
+        globalTimer = System.currentTimeMillis();
+
+
+
+
+        do{
             Random rand = new Random();
             address = rand.nextInt(127);
 
 //            System.out.println("the random number: " + address);
 
-            byte[] pkt = new byte[2];
-            pkt[0] = (byte) 0b010 << 5;
-            pkt[1] = (byte) address;
+//            byte[] pkt = new byte[2];
+//            pkt[0] = (byte) 0b010 << 5;
+//            pkt[1] = (byte) address;
+            System.out.println("the random number: " + address);
+            directions.clear();
 
             directions.add(address);
 
-            ByteBuffer msg = ByteBuffer.allocate(2);
-            msg = ByteBuffer.wrap(pkt);
-            msg.put(pkt);
-            try{
-                long timer = System.currentTimeMillis();
-                while(System.currentTimeMillis() - timer < 120000){
-//                    if(System.currentTimeMillis() - timer > 37500 && directions.size()<4){
+
+
+
+            long timer = System.currentTimeMillis();
+            while(System.currentTimeMillis() - timer < addressingTime+extra){
+                Random random = new Random();
+                int randomElement = directions.get(random.nextInt(directions.size()));
+                System.out.println(randomElement);
+                byte[] pkt = new byte[2];
+                pkt[0] = (byte) 0b010 << 5;
+                myWait(1000);
+                pkt[1] = (byte) randomElement;
+                ByteBuffer msg = ByteBuffer.allocate(2);
+                msg = ByteBuffer.wrap(pkt);
+                msg.put(pkt);
+                try{
+                    MAC(new Message(MessageType.DATA_SHORT, msg));
+                }catch(InterruptedException e){
+                    System.exit(2);
+                }
+                for(Integer direction: directions){
+                    System.out.print(direction + ", ");
+                }
+                System.out.println(" up to this point -- still looking");
+            }
+            if(directions.size() == 4){
+                tryAgain = false;
+                myWait(8000);
+            }else{
+                byte[] trypkt = new byte[2];
+                trypkt[0] = 0b001<<5;
+                ByteBuffer tryoktBuffer = ByteBuffer.wrap(trypkt);
+                long timertry = System.currentTimeMillis();
+                while(System.currentTimeMillis() - timertry < 7000){
+                    try{
+                        MAC(new Message(MessageType.DATA_SHORT, tryoktBuffer));
+                    }catch (InterruptedException e){
+                        System.exit(2);
+                    }
+                }
+                extra+=40000;
+            }
+
+        }while(tryAgain);
+        users.add("0");
+        users.add("1");
+        users.add("2");
+        users.add("3");;
+
+//        while(directions.size() < 4){
+//            Random rand = new Random();
+//            address = rand.nextInt(127);
+//
+////            System.out.println("the random number: " + address);
+//
+//            byte[] pkt = new byte[2];
+//            pkt[0] = (byte) 0b010 << 5;
+//            pkt[1] = (byte) address;
+//
+//            directions.add(address);
+//
+//            ByteBuffer msg = ByteBuffer.allocate(2);
+//            msg = ByteBuffer.wrap(pkt);
+//            msg.put(pkt);
+//            try{
+//                long timer = System.currentTimeMillis();
+//                while(System.currentTimeMillis() - timer < 120000){
+//                    if(System.currentTimeMillis() - timer > addressingTime+extra && directions.size()<4){
 //                        System.out.println("now increase");
 //                        myWait(1700);
 //                    }
-                    if(System.currentTimeMillis() - timer > 42000){
-                        break;
-                    }
-                    MAC(new Message(MessageType.DATA_SHORT, msg));
-                    for(Integer direction: directions){
-                        System.out.print(direction + ", ");
-                    }
-                    System.out.println(" up to this point -- still looking");
+////                    if(System.currentTimeMillis() - timer > addressingTime){
+////                        break;
+////                    }
+//                    MAC(new Message(MessageType.DATA_SHORT, msg));
+//                    for(Integer direction: directions){
+//                        System.out.print(direction + ", ");
+//                    }
+//                    System.out.println(" up to this point -- still looking");
 //                    if(directions.size() == 4 || endFlood){
 //                        break;
 //                    }
-                }
-
-            }catch (InterruptedException e){
-                System.exit(2);
-            }
-            if(directions.size() == 4 || endFlood){
-                break;
-            }else{
-                directions.clear();
-            }
-
-            //if the directions size is smaller than 4, wait a while for all to finish/reset and then start over
-            myWait(80000);
-
-
-        }
-
-        receivedQueue.clear();
-
-//        if(directions.size() == 4){
-//
-//            // now end the while loops of others
-//            ByteBuffer end = ByteBuffer.allocate(1);
-//            byte endSignal = 0b01100000;
-//            end.put(endSignal);
-//
-//
-//            // the first node that gets all directions call others to ask them to stop flooding
-//            try{
-//                long start = System.currentTimeMillis();
-//                while(System.currentTimeMillis()-start < 1000){
-//                    MAC(new Message(MessageType.DATA_SHORT, end));
 //                }
 //
 //            }catch (InterruptedException e){
 //                System.exit(2);
 //            }
+//            if(directions.size() == 4 || endFlood){
+//                break;
+//            }else{
+//                directions.clear();
+//            }
+//
+//            //if the directions size is smaller than 4, wait a while for all to finish/reset and then start over
+//            myWait(80000);
+//
+//            extra+=40000;
+//        }
+//
+//        receivedQueue.clear();
+//
+//        if(directions.size() == 4){
+//
+//            // now end the while loops of others
+////            ByteBuffer end = ByteBuffer.allocate(1);
+////            byte endSignal = 0b01100000;
+////            end.put(endSignal);
+////
+////
+////            // the first node that gets all directions call others to ask them to stop flooding
+////            try{
+////                long start = System.currentTimeMillis();
+////                while(System.currentTimeMillis()-start < 1000){
+////                    MAC(new Message(MessageType.DATA_SHORT, end));
+////                }
+////
+////            }catch (InterruptedException e){
+////                System.exit(2);
+////            }
 //
 //            // 01100000 0xxxxxxx 0yyyyyyy 0zzzzzzz 0ooooooo
 //            byte[] addressaPkt = new byte[5];
@@ -373,7 +489,7 @@ public class MyProtocol{
 //            addressaPkt[4] = (byte) (directions.get(3) & 0b1111111);
 //            ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
 //
-//            while(System.currentTimeMillis() - globalTimer < 60000){
+//            while(System.currentTimeMillis() - globalTimer < addressingTime){
 ////                myWait(1000);
 ////                System.out.println("Propagating full list");
 //                try{
@@ -385,10 +501,8 @@ public class MyProtocol{
 //            }
 //
 //        }
-//        System.out.println("Before timer");
+        System.out.println("Before timer");
         // habia un receiving queue aca
-        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 60000){
-        }
 
         Collections.sort(directions); // sort the list so the index of all
                                       // of the nodes can be reduced to two by using their respective index
@@ -401,8 +515,6 @@ public class MyProtocol{
         // Start of DVR
         forwardingTable = new ForwardingTable(client.getAddress());
 
-
-        myWait(30000);
 //        System.out.println("after my wait");
         receivedQueue.clear();
         sendingQueue.clear();
@@ -430,8 +542,9 @@ public class MyProtocol{
 
         ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
-        while(System.currentTimeMillis() - globalTimer < 110000){
+        while(System.currentTimeMillis() - globalTimer < waiter+extra+addressingTime){
 //            System.out.println("Still sending -- propagation");
+            myWait(1500);
             try{
                 MAC(new Message(MessageType.DATA, bufferPacket));
             }catch(InterruptedException e){
@@ -439,7 +552,6 @@ public class MyProtocol{
             }
         }
 //        System.out.println("Finish propagating tables");
-
 //        System.out.println("Outside");
 //        for(int i = 0; i < 10; i++){
 //            slottedMAC(new Message(MessageType.DATA, bufferPacket));
@@ -614,7 +726,7 @@ public class MyProtocol{
                                 directions.add((int) m.getData().get(4));
                             }
 
-                            propagatePureTables(10000, m);
+                            propagatePureTables(1500, m);
                         }else if(directions.size() == 4 && m.getData().get(0) >> 5 == 0b010 ){ // added the a&& to avoid this if
                             // all the rest and after DVR
                             // new format iii00000 0dd-hhh-nn
@@ -626,6 +738,9 @@ public class MyProtocol{
                                 hops++;
 //                                System.out.println("It took: " + hops + " hops to get from " + src + " to " + client.getAddress() + ", nb: " + sender );
                                 ForwardingTable neighbour = new ForwardingTable(m.getData().array());
+                                if(forwardingTable == null){
+                                    forwardingTable = new ForwardingTable(client.getAddress());
+                                }
                                 if(hops < forwardingTable.getCost(src)){
                                     forwardingTable.newRoute(src,hops,sender);
                                 }
@@ -650,8 +765,9 @@ public class MyProtocol{
 //                                for(int i = 0; i < 10; i++){
 //                                    slottedMAC(new Message(MessageType.DATA, bufferPacket));
 //                                }
-                                while(System.currentTimeMillis() - globalTimer < 110000){
+                                while(System.currentTimeMillis() - globalTimer < waiter+extra){
 //                                    System.out.println("Still sending -- propagation");
+                                    myWait(1500);
                                     System.out.println("table propagating");
                                     MAC(new Message(MessageType.DATA, bufferPacket));
                                 }
@@ -669,7 +785,8 @@ public class MyProtocol{
                             int nxt= m.getData().get(1) >>5;
                             int seq= (m.getData().get(1) >> 2) & 0b111;
                             int frag= m.getData().get(1) & 0b11;
-                            int payld= m.getData().get(2) >> 3;
+                            int payld= m.getData().get(2) >> 2;
+                            int sender = m.getData().get(2) & 0b11;
                             if(dst == client.getAddress()){
 
                                 byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
@@ -726,14 +843,18 @@ public class MyProtocol{
 //                                }
 //                                System.out.println(" list up to this point ");
                                 if (directions.size() < 4) {
-                                    propagatePure(300,m);
+//                                    propagatePure(300,m);//?
                                 }else if(directions.size() == 4){
                                     endFlood = true;
                                 }
                             }
-                            propagatePure(300,m);
-                        }else if(m.getData().get(0) >> 5 == 0b011 && directions.size() == 4){
+//                            propagatePure(3000,m);//?
+                        }else if(m.getData().get(0) >> 5 == 0b011){
+                            //goodbye
+//                            byte[] goodbye = m.getData().array();
+//                            int address  = goodbye[1];
                             endFlood = true;
+                            propagatePure(1000, m);
                         }else if(m.getData().get(0) >> 5 == 0b0){
                             // check if pending is waiting on this ack to avoid retransmission
                             int src = m.getData().get(0) >> 3;
@@ -755,6 +876,13 @@ public class MyProtocol{
                                 retransmitList.remove(temp);
 
                             }
+                        }else if(m.getData().get(0) >> 5 == 0b001){
+                            tryAgain = true;
+                            long lasttimer = System.currentTimeMillis();
+                            while(System.currentTimeMillis()-lasttimer < 2000){
+                                MAC(m);
+                            }
+                            extra+=40000;
                         }
                     } else if (m.getType() == MessageType.DONE_SENDING){
 //                        System.out.println("DONE_SENDING");
