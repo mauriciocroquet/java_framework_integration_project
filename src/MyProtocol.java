@@ -84,9 +84,10 @@ public class MyProtocol{
 
     public void MAC(Message msg) throws InterruptedException {
         boolean trying = true;
-        double p = 0.30;
+        double p = 0.25;
+        int time = msg.getType()==MessageType.DATA?1500:200;
         while(trying){
-            myWait(3000);
+            myWait(time);
             if (new Random().nextInt(100) < p * 100) {
                 sendingQueue.put(msg);
                 trying = false;
@@ -217,7 +218,7 @@ public class MyProtocol{
                             ByteBuffer msg = ByteBuffer.wrap(packet);
                             message = new Message(MessageType.DATA, msg);
                             new retransmitList(message).start();
-                            myWait(1000);
+//                            myWait(1000);
                         }
                     }
 
@@ -238,7 +239,7 @@ public class MyProtocol{
                         ByteBuffer msg = ByteBuffer.wrap(packet);
                         message = new Message(MessageType.DATA, msg);
                         new retransmitList(message).start();
-                        myWait(1000);
+//                        myWait(1000);
                     }
                 }
             }
@@ -310,14 +311,21 @@ public class MyProtocol{
             try{
                 long timer = System.currentTimeMillis();
                 while(System.currentTimeMillis() - timer < 120000){
+//                    if(System.currentTimeMillis() - timer > 37500 && directions.size()<4){
+//                        System.out.println("now increase");
+//                        myWait(1700);
+//                    }
+                    if(System.currentTimeMillis() - timer > 42000){
+                        break;
+                    }
                     MAC(new Message(MessageType.DATA_SHORT, msg));
                     for(Integer direction: directions){
                         System.out.print(direction + ", ");
                     }
                     System.out.println(" up to this point -- still looking");
-                    if(directions.size() == 4 || endFlood){
-                        break;
-                    }
+//                    if(directions.size() == 4 || endFlood){
+//                        break;
+//                    }
                 }
 
             }catch (InterruptedException e){
@@ -337,49 +345,49 @@ public class MyProtocol{
 
         receivedQueue.clear();
 
-        if(directions.size() == 4){
-
-            // now end the while loops of others
-            ByteBuffer end = ByteBuffer.allocate(1);
-            byte endSignal = 0b01100000;
-            end.put(endSignal);
-
-
-            // the first node that gets all directions call others to ask them to stop flooding
-            try{
-                long start = System.currentTimeMillis();
-                while(System.currentTimeMillis()-start < 1000){
-                    MAC(new Message(MessageType.DATA_SHORT, end));
-                }
-
-            }catch (InterruptedException e){
-                System.exit(2);
-            }
-
-            // 01100000 0xxxxxxx 0yyyyyyy 0zzzzzzz 0ooooooo
-            byte[] addressaPkt = new byte[5];
-            addressaPkt[0] = (byte) (0b01100000);
-            addressaPkt[1] = (byte) (directions.get(0) & 0b1111111);
-            addressaPkt[2] = (byte) (directions.get(1) & 0b1111111);
-            addressaPkt[3] = (byte) (directions.get(2) & 0b1111111);
-            addressaPkt[4] = (byte) (directions.get(3) & 0b1111111);
-            ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
-
-            while(System.currentTimeMillis() - globalTimer < 100000){
-//                myWait(1000);
-//                System.out.println("Propagating full list");
-                try{
-                    MAC(new Message(MessageType.DATA, msg));
-
-                }catch(InterruptedException e){
-                    System.exit(2);
-                }
-            }
-
-        }
+//        if(directions.size() == 4){
+//
+//            // now end the while loops of others
+//            ByteBuffer end = ByteBuffer.allocate(1);
+//            byte endSignal = 0b01100000;
+//            end.put(endSignal);
+//
+//
+//            // the first node that gets all directions call others to ask them to stop flooding
+//            try{
+//                long start = System.currentTimeMillis();
+//                while(System.currentTimeMillis()-start < 1000){
+//                    MAC(new Message(MessageType.DATA_SHORT, end));
+//                }
+//
+//            }catch (InterruptedException e){
+//                System.exit(2);
+//            }
+//
+//            // 01100000 0xxxxxxx 0yyyyyyy 0zzzzzzz 0ooooooo
+//            byte[] addressaPkt = new byte[5];
+//            addressaPkt[0] = (byte) (0b01100000);
+//            addressaPkt[1] = (byte) (directions.get(0) & 0b1111111);
+//            addressaPkt[2] = (byte) (directions.get(1) & 0b1111111);
+//            addressaPkt[3] = (byte) (directions.get(2) & 0b1111111);
+//            addressaPkt[4] = (byte) (directions.get(3) & 0b1111111);
+//            ByteBuffer msg = ByteBuffer.wrap(addressaPkt);
+//
+//            while(System.currentTimeMillis() - globalTimer < 60000){
+////                myWait(1000);
+////                System.out.println("Propagating full list");
+//                try{
+//                    MAC(new Message(MessageType.DATA, msg));
+//
+//                }catch(InterruptedException e){
+//                    System.exit(2);
+//                }
+//            }
+//
+//        }
 //        System.out.println("Before timer");
         // habia un receiving queue aca
-        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 100000){
+        while(directions.size() != 4  && System.currentTimeMillis() - globalTimer < 60000){
         }
 
         Collections.sort(directions); // sort the list so the index of all
@@ -422,9 +430,13 @@ public class MyProtocol{
 
         ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
-        while(System.currentTimeMillis() - globalTimer < 2500000){
+        while(System.currentTimeMillis() - globalTimer < 110000){
 //            System.out.println("Still sending -- propagation");
-            propagatePureTables(7000, new Message(MessageType.DATA, bufferPacket));
+            try{
+                MAC(new Message(MessageType.DATA, bufferPacket));
+            }catch(InterruptedException e){
+                System.exit(2);
+            }
         }
 //        System.out.println("Finish propagating tables");
 
@@ -638,10 +650,10 @@ public class MyProtocol{
 //                                for(int i = 0; i < 10; i++){
 //                                    slottedMAC(new Message(MessageType.DATA, bufferPacket));
 //                                }
-                                while(System.currentTimeMillis() - globalTimer < 300000){
+                                while(System.currentTimeMillis() - globalTimer < 110000){
 //                                    System.out.println("Still sending -- propagation");
                                     System.out.println("table propagating");
-                                    propagatePureTables(4000, new Message(MessageType.DATA, bufferPacket));
+                                    MAC(new Message(MessageType.DATA, bufferPacket));
                                 }
 
 
