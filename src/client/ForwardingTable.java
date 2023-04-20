@@ -69,14 +69,16 @@ public class ForwardingTable {
     }
 
     public void mergeTables(ForwardingTable nbTable){ // Searches to see if faster routes are available from neighbour table
-        int linkcost = nbTable.getCost(address);
+//        System.out.println("goes to merge");
         int nbaddress = nbTable.getAddress();
-        if(linkcost == INF){//does not get here
+        int linkcost = getCost(nbaddress);
+        if(linkcost == INF && nbTable.getCost(address) < INF){//does not get here
             return;
         }
         for(int i = 0; i < 4; i++){
-            int destination = nbTable.getDestination(i);
-            if(nbTable.getCost(i) + linkcost < this.getCost(destination)){
+//            System.out.println((nbTable.getCost(i) + linkcost) + " instead of " + this.getCost(i) + "?");
+            if(nbTable.getCost(i) + linkcost < this.getCost(i)){
+//                System.out.println("This is used");
                 this.newRoute(i, nbTable.getCost(i) + linkcost, nbaddress);
             }
         }
