@@ -29,8 +29,8 @@ public class MyProtocol {
     private final List<String> printed = new ArrayList<>();
     private final HashMap<Byte, List<Message>> fragmentationMap = new HashMap<>();
     private final long globalTimer;
-    private final int addressingTime = 30000;
-    private final int waiter = 60000;
+    private final int addressingTime = 50000;
+    private final int waiter = 90000;
     private final List<String> users = new ArrayList<>();
     private boolean stayAlive = true;
     private final String menu =
@@ -287,7 +287,7 @@ public class MyProtocol {
         forwardingTable.print();
         System.out.println("\n" + menu);
         while (stayAlive) {
-            System.out.print("[" + client.getAddress() + "]: ");
+            System.out.print("[" + users.get(client.getAddress()) + "]: ");
             Scanner scan = new Scanner(System.in);
             String text = scan.nextLine();
             List<String> words = List.of(text.split(" "));
@@ -558,9 +558,9 @@ public class MyProtocol {
                             } else if (nxt == client.getAddress()) {
                                 //send packet to the updated next hop based on FT
                                 //dst remains same, source is current node, next is modified
-                                byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
+                                byte[] ack = ackBuilder(nxt, src, seq, frag);
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
-                                propagatePure(600, msg);
+                                slottedAloha( msg);
 
                                 int newNextHop = forwardingTable.getNextHop(dst); // this has to be the next hop of the destination
                                 byte[] header = new byte[3];
