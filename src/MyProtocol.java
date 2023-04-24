@@ -523,7 +523,7 @@ public class MyProtocol {
 
                             }
                         } else if (m.getData().get(0) >> 5 == 0b0 && !ackList.contains(m)) {
-                            //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
+                            //text message format: 000ssdd0 nnqqqff pppppoo0 +29bytes
                             //ss=source; dd= destination; nn= next hop; qqq= seq no; ff=fragmentation
                             //ff== 00 -> no fragmentation; ff== 01 ->frag + first packet from frag;
                             //ff== 10 -> frag + last packet
