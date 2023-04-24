@@ -1,4 +1,5 @@
 import client.*;
+import com.sun.source.tree.IntersectionTypeTree;
 
 import java.nio.ByteBuffer;
 import java.io.IOException;
@@ -14,7 +15,7 @@ public class MyProtocol {
     // The port to connect to. 8954 for the simulation server.
     private static final int SERVER_PORT = 8954;
     // The frequency to use.
-    private static int frequency = 5000;
+    private static int frequency = 6900;
     private final BlockingQueue<Message> receivedQueue;
     private final BlockingQueue<Message> sendingQueue;
     private final List<Integer> directions = new ArrayList<>();
@@ -28,8 +29,8 @@ public class MyProtocol {
     private final List<String> printed = new ArrayList<>();
     private final HashMap<Byte, List<Message>> fragmentationMap = new HashMap<>();
     private final long globalTimer;
-    private final int addressingTime = 60000;
-    private final int waiter = 100000;
+    private final int addressingTime = 30000;
+    private final int waiter = 60000;
     private final List<String> users = new ArrayList<>();
     private boolean stayAlive = true;
     private final String menu =
@@ -62,6 +63,7 @@ public class MyProtocol {
         globalTimer = System.currentTimeMillis();
 
         do {
+            tryAgain = false;
             Random rand = new Random();
             address = rand.nextInt(127);
             System.out.println("Your new address: " + address + ". Propagating address list...");
@@ -72,6 +74,7 @@ public class MyProtocol {
 
             long timer = System.currentTimeMillis();
             while (System.currentTimeMillis() - timer < addressingTime + extra) {
+                System.out.println();
                 Random random = new Random();
                 int randomElement = directions.get(random.nextInt(directions.size()));
                 byte[] pkt = new byte[2];
@@ -85,6 +88,9 @@ public class MyProtocol {
                     MAC(new Message(MessageType.DATA_SHORT, msg));
                 } catch (InterruptedException e) {
                     System.exit(2);
+                }
+                for(Integer direction: directions){
+                    System.out.print(direction + ", ");
                 }
 
             }
@@ -130,7 +136,11 @@ public class MyProtocol {
 
 
 
+        /**
+         * These next commented out lines are for the attempt of implementing slotted Aloha.
+         */
         while (System.currentTimeMillis() - globalTimer < waiter + extra + addressingTime) {
+//        for(int i = 0; i < 16; i++){
             byte[] dvrPkt = new byte[2];
             // i=indentifier, s= source, h=hops, n= next hop
             // format: iii00000 0ss-hhh-nn
@@ -145,81 +155,11 @@ public class MyProtocol {
             System.arraycopy(payload, 0, fullpacket, dvrPkt.length, payload.length);
 
             ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
+            slottedAloha(new Message(MessageType.DATA, bufferPacket));
             myWait(5000);
-            try {
-                MAC(new Message(MessageType.DATA, bufferPacket));
-            } catch (InterruptedException e) {
-                System.exit(2);
-            }
         }
-        /**
-         * These next commented out lines are for the attempt of implementing slotted Aloha.
-         */
-//        System.out.println("Finish propagating tables");
-//        System.out.println("Outside");
-//        for(int i = 0; i < 10; i++){
-//            slottedMAC(new Message(MessageType.DATA, bufferPacket));
-//            System.out.println("Trying...");
-//        }
-//    public void fullSend(Message m){
-//        pending.add(m); // we remove this from the list when we get the respective ack
-//        while(!ACK){
-//            if(pending.contains(m)){
-//                slottedMAC(m);
-//            }
-//            myWait(800); // wait for timeout
-//            // we're turning it to true in run()
-//        }
-//        ACK = false;
-//    }
-//
-//    public void ackRecieved(){
-//        packetAck.removeIf(packet -> System.currentTimeMillis() - packet.timestamp > 2500); // time may be longer than expected for acks
-//    }
-//    public void slottedMACACK(Message msg){
-//        ByteBuffer bytes = msg.getData();
-//        byte[] packet = bytes.array();
-//        int dest = //
-//        int seq = //
-//        PacketACK pendingPkt = new PacketACK(seq, dest);
-//        pending();
-//        while(true){
-//            slottedMAC(msg);
-//            myWait(800);
-//            if(!waitingACK.contains(pendingPkt)){
-//                break;
-//            }
-//            // update sequence number
-//        }
-//    }
         chatRoom();
-        try {
-            ByteBuffer temp = ByteBuffer.allocate(1024);
-            int read = 0;
-            int new_line_offset = 0;
-            while (true) {
-                read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
-                if (read > 0) {
-                    if (temp.get(read - 1) == '\n' || temp.get(read - 1) == '\r')
-                        new_line_offset = 1; //Check if last char is a return or newline so we can strip it
-                    if (read > 1 && (temp.get(read - 2) == '\n' || temp.get(read - 2) == '\r'))
-                        new_line_offset = 2; //Check if second to last char is a return or newline so we can strip it
-                    ByteBuffer toSend = ByteBuffer.allocate(read - new_line_offset); // copy data without newline / returns
-                    toSend.put(temp.array(), 0, read - new_line_offset); // enter data without newline / returns
-                    Message msg;
-                    if ((read - new_line_offset) > 2) {
-                        msg = new Message(MessageType.DATA, toSend);
-                    } else {
-                        msg = new Message(MessageType.DATA_SHORT, toSend);
-                    }
-                    sendingQueue.put(msg);
-                }
-            }
-        } catch (InterruptedException e) {
-            System.exit(2);
-        } catch (IOException e) {
-            System.exit(2);
-        }
+
     }
 
 
@@ -283,6 +223,21 @@ public class MyProtocol {
         }
     }
 
+    public void slottedAloha(Message msg){
+        while(true){
+            Date date = new Date(System.currentTimeMillis());
+            if((date.getTime()/5000)%4==client.getAddress() && (date.getTime()%5000 > 2100) && sendingQueue.size()<2){
+                System.out.println("Sending " + client.getAddress());
+                try{
+                    sendingQueue.put(msg);
+                    return;
+                }catch(InterruptedException e){
+                    System.exit(2);
+                }
+            }
+        }
+    }
+
     // Java's own wait() was not working as intended, hence we implemented this method.
     public void myWait(int ms) {
         long start = System.currentTimeMillis();
@@ -340,7 +295,8 @@ public class MyProtocol {
             if (words.size() == 2 && words.get(0).equals("!name")) {
                 users.set(client.getAddress(), words.get(1));
                 System.out.println("Name is set to: " + words.get(1));
-            } else if (Objects.equals(text, "!help")) {
+            }
+            if (Objects.equals(text, "!help")) {
                 System.out.println(menu);
             } else if (Objects.equals(text, "!submarines")) {
                 if (users.size() <= 1) {
@@ -547,6 +503,7 @@ public class MyProtocol {
                                 }
 
                                 forwardingTable.mergeTables(neighbour);
+                                forwardingTable.print();
 //                                forwardingTable.print();
                                 //now change sender and put it in the sending queue
                                 //send a new updated message of the FT
@@ -563,9 +520,9 @@ public class MyProtocol {
 
                                 ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
-//                                for(int i = 0; i < 10; i++){
-//                                    slottedMAC(new Message(MessageType.DATA, bufferPacket));
-//                                }
+                                if(System.currentTimeMillis() - globalTimer < waiter + extra + addressingTime) {
+                                    slottedAloha(new Message(MessageType.DATA, bufferPacket));
+                                }
 
 
 
