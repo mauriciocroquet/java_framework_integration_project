@@ -445,12 +445,7 @@ public class MyProtocol {
         @Override
         public void run() {
             do {
-                try {
-                    MAC(msg);
-                    byte[] message = msg.getData().array();
-                } catch (InterruptedException e) {
-                    System.exit(2);
-                }
+                slottedAloha(msg);
                 if (!retransmitList.contains(msg)) {
                     retransmitList.add(msg);
                 }
@@ -546,7 +541,8 @@ public class MyProtocol {
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
 //                                ackList.add(new ObjReceived(System.currentTimeMillis(), m));
 //                                new ackThread(msg).start();
-                                propagatePure(600, msg);
+                                slottedAloha( msg);
+                                // there is still a need to ack other msgs (not for u but in the path of the node)
                                 // ack thread
 
                                 if (frag == 0b00) {
@@ -566,7 +562,7 @@ public class MyProtocol {
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
                                 propagatePure(600, msg);
 
-                                int newNextHop = forwardingTable.getNextHop(client.getAddress());
+                                int newNextHop = forwardingTable.getNextHop(dst); // this has to be the next hop of the destination
                                 byte[] header = new byte[3];
                                 header[0] = (byte) ((client.getAddress() << 3) | dst << 1);
                                 header[1] = (byte) ((newNextHop << 5) | (seq << 2) | frag);
@@ -574,9 +570,14 @@ public class MyProtocol {
 
                                 byte[] payload = Arrays.copyOfRange(m.getData().array(), 3, m.getData().array().length); // could be -1
 
+
                                 byte[] packet = new byte[header.length + payload.length];
                                 System.arraycopy(header, 0, packet, 0, header.length);
                                 System.arraycopy(payload, 0, packet, header.length, payload.length);
+                                // nunca lo estabamos mandando
+                                System.out.println("Should send this to someone else");
+                                System.out.println("This is address: " + client.getAddress() + " and sending it to: " + newNextHop);
+                                new retransmitList(new Message(MessageType.DATA, ByteBuffer.wrap(packet))).start();
                             }
                         }
                     } else if (m.getType() == MessageType.DATA_SHORT) {
