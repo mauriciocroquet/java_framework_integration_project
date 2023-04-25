@@ -226,8 +226,8 @@ public class MyProtocol {
     public void slottedAloha(Message msg){
         while(true){
             Date date = new Date(System.currentTimeMillis());
-            if((date.getTime()/5000)%4==client.getAddress() && (date.getTime()%5000 > 2100) && sendingQueue.size()<2){
-                System.out.println("Sending " + client.getAddress());
+            if((date.getTime()/4500)%4==client.getAddress() && (date.getTime()%4500 > 2100) && sendingQueue.size()<2){ // previously 5000
+//                System.out.println("Sending " + client.getAddress());
                 try{
                     sendingQueue.put(msg);
                     return;
@@ -318,8 +318,37 @@ public class MyProtocol {
                 propagatePure(1000, new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(goodbye)));
                 System.exit(0);
             } else {
-                if (text.length() >= 30 && text.length() <= 58) { // this is for longer packets
-                    Message message = null;
+
+                if (text.length() > 29) { // this is for longer packets
+                    //011ssdd0 0nnqqqf0 ppppp0aa should be the format for the fragmented header
+
+
+//                    String[] message = text.split("(?<=\\G.{29})");
+//                    updateSeq(); // cahnges the sequence number, note: this makes all fragments have the same seq # but the fragflag can be distinct
+//                    for(int i = 0; i < 3; i++){
+//                        for (String fragment : message) {
+//
+//                            byte[] header = new byte[3];
+//                            header[0] = (byte) (0b011 << 5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+//                            header[1] = (byte) (forwardingTable.getNextHop(i) << 5 | sequenceNum << 2 | fragFlag);
+//                            header[2] = (byte) (fragment.length() << 5 | client.getAddress());
+//                            byte[] payload = fragment.getBytes(); // gets the specific fragment mentioned
+//
+//                            byte[] packet = new byte[header.length + payload.length]; // all this should only be copying both arrays to one complete byte[]
+//                            System.arraycopy(header, 0, packet, 0, header.length);
+//                            System.arraycopy(payload, 0, packet, header.length, payload.length);
+//                            ByteBuffer msg = ByteBuffer.wrap(packet); // into a bytebuffer
+//                            Message frag = new Message(MessageType.DATA, msg); // bytebuffer into a message
+//                            new retransmitList(frag).start(); // thread that send the message
+//
+//                            if ( ) {
+//
+//                            }
+//                        }
+//                    }
+
+
+                   /* Message message = null;
                     String part1 = text.substring(0, 28);
                     String part2 = text.substring(29);
                     for (int j = 0; j < 2; j++) {
@@ -331,7 +360,8 @@ public class MyProtocol {
                             } else {
                                 payload = part2.getBytes();
                             }
-                            header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+                            //011ssdd0 0nnqqqff ppppp0aa
+                            header[0] = (byte) (0b011<<5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
                             header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2 | (j == 0 ? 0b01 : 0b10));
                             header[2] = (byte) (payload.length << 2 | client.getAddress());
                             byte[] packet = new byte[header.length + payload.length];
@@ -339,12 +369,9 @@ public class MyProtocol {
                             System.arraycopy(payload, 0, packet, header.length, payload.length);
                             ByteBuffer msg = ByteBuffer.wrap(packet);
                             message = new Message(MessageType.DATA, msg);
-                            new retransmitList(message).start();
-                        }
-                    }
-
-                } else if (text.length() > 58) {
-                    System.out.println("Text is too long, please shorten it");
+                            new retransmitList(message).start();*/
+//                        }
+//                    }
                 } else {
                     //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
                     //s = source, d = destination, q = sequence number, f= fragmentation flg, p = payload length, 29 bytes data/payload allocated
@@ -449,7 +476,7 @@ public class MyProtocol {
                 if (!retransmitList.contains(msg)) {
                     retransmitList.add(msg);
                 }
-                myWait(10000);
+                myWait(20000);
 
             } while (retransmitList.contains(msg));
         }
@@ -463,22 +490,33 @@ public class MyProtocol {
             this.receivedQueue = receivedQueue;
         }
 
-        public void run() {
+        public void run() { //receiving node
             while (true) {
                 try {
                     Message m = receivedQueue.take();
                     if (m.getType() == MessageType.DATA) {
                         if (m.getType() == MessageType.DATA && m.getData().get(0) >> 5 == 0b011) {
-                            if (directions.size() != 4) {
-                                directions.clear();
-                                // type: DATA, Parsing: 01100000 0xxxxxxx 0yyyyyyy 0zzzzzzz 0ooooooo
-                                directions.add((int) m.getData().get(1));
-                                directions.add((int) m.getData().get(2));
-                                directions.add((int) m.getData().get(3));
-                                directions.add((int) m.getData().get(4));
-                            }
 
-                            propagatePureTables(1500, m);
+                            //011ssdd0 0nnqqqf0 ppppp0aa
+                            // reciever side example:
+                            // that is to place info into the packet
+//                            byte[] header = new byte[3];
+//                            header[0] = 0b011<<5 | client.getAddress() << 3 |
+
+                            // this is how you extract info from the packet
+                            byte[] header = m.getData().array();
+                            int frag = (header[1] >> 1) & 0b1;
+
+//                            if (directions.size() != 4) {
+//                                directions.clear();
+//                                // type: DATA, Parsing: 01100000 0xxxxxxx 0yyyyyyy 0zzzzzzz 0ooooooo
+//                                directions.add((int) m.getData().get(1));
+//                                directions.add((int) m.getData().get(2));
+//                                directions.add((int) m.getData().get(3));
+//                                directions.add((int) m.getData().get(4));
+//                            }
+//
+//                            propagatePureTables(1500, m);
                         } else if (directions.size() == 4 && m.getData().get(0) >> 5 == 0b010) { // added the && to avoid this if
                             // all the rest and after DVR
                             // format iii00000 0dd-hhh-nn
@@ -575,8 +613,8 @@ public class MyProtocol {
                                 System.arraycopy(header, 0, packet, 0, header.length);
                                 System.arraycopy(payload, 0, packet, header.length, payload.length);
                                 // nunca lo estabamos mandando
-                                System.out.println("Should send this to someone else");
-                                System.out.println("This is address: " + client.getAddress() + " and sending it to: " + newNextHop);
+//                                System.out.println("Should send this to someone else");
+//                                System.out.println("This is address: " + client.getAddress() + " and sending it to: " + newNextHop);
                                 new retransmitList(new Message(MessageType.DATA, ByteBuffer.wrap(packet))).start();
                             }
                         }
