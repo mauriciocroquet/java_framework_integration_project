@@ -318,34 +318,35 @@ public class MyProtocol {
                 propagatePure(1000, new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(goodbye)));
                 System.exit(0);
             } else {
-
-                if (text.length() > 29) { // this is for longer packets
                     //011ssdd0 0nnqqqf0 ppppp0aa should be the format for the fragmented header
 
 
-//                    String[] message = text.split("(?<=\\G.{29})");
-//                    updateSeq(); // cahnges the sequence number, note: this makes all fragments have the same seq # but the fragflag can be distinct
-//                    for(int i = 0; i < 3; i++){
-//                        for (String fragment : message) {
-//
-//                            byte[] header = new byte[3];
-//                            header[0] = (byte) (0b011 << 5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
-//                            header[1] = (byte) (forwardingTable.getNextHop(i) << 5 | sequenceNum << 2 | fragFlag);
-//                            header[2] = (byte) (fragment.length() << 5 | client.getAddress());
-//                            byte[] payload = fragment.getBytes(); // gets the specific fragment mentioned
-//
-//                            byte[] packet = new byte[header.length + payload.length]; // all this should only be copying both arrays to one complete byte[]
-//                            System.arraycopy(header, 0, packet, 0, header.length);
-//                            System.arraycopy(payload, 0, packet, header.length, payload.length);
-//                            ByteBuffer msg = ByteBuffer.wrap(packet); // into a bytebuffer
-//                            Message frag = new Message(MessageType.DATA, msg); // bytebuffer into a message
-//                            new retransmitList(frag).start(); // thread that send the message
-//
-//                            if ( ) {
-//
-//                            }
-//                        }
-//                    }
+                if(text.length() > 28){
+
+                    String[] message = text.split("(?<=\\G.{28})");
+                    updateSeq(); // cahnges the sequence number, note: this makes all fragments have the same seq # but the fragflag can be distinct
+                    for(int i = 0; i < 3; i++){
+                        int offset = 0;
+                        for (String fragment : message) {
+                            byte[] header = new byte[4];
+                            int fragFlag = 0;
+                            //011ssdd0 0nnqqqf0 ppppp0aa 0ooooooo
+
+                            header[0] = (byte) (0b011 << 5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+                            header[1] = (byte) (forwardingTable.getNextHop(forwardingTable.getNeigbours().get(i)) << 5 | sequenceNum << 2 | fragFlag);
+                            header[2] = (byte) (fragment.length() << 5 | client.getAddress());
+                            header[3] = (byte) offset;
+                            byte[] payload = fragment.getBytes(); // gets the specific fragment mentioned
+
+                            byte[] packet = new byte[header.length + payload.length]; // all this should only be copying both arrays to one complete byte[]
+                            System.arraycopy(header, 0, packet, 0, header.length);
+                            System.arraycopy(payload, 0, packet, header.length, payload.length);
+                            ByteBuffer msg = ByteBuffer.wrap(packet); // into a bytebuffer
+                            Message frag = new Message(MessageType.DATA, msg); // bytebuffer into a message
+                            new retransmitList(frag).start(); // thread that send the message
+                            offset += 1;
+                        }
+                    }
 
 
                    /* Message message = null;
@@ -504,8 +505,25 @@ public class MyProtocol {
 //                            header[0] = 0b011<<5 | client.getAddress() << 3 |
 
                             // this is how you extract info from the packet
-                            byte[] header = m.getData().array();
-                            int frag = (header[1] >> 1) & 0b1;
+
+                            //011ssdd0 0nnqqqf0 ppppp0aa 0ooooooo
+
+                            int src = m.getData().get(0) >> 3 & 0b111;
+                            int dst = (m.getData().get(0) >> 1) & 0b11;
+                            int nxt = m.getData().get(1) >> 5 & 0b11;
+                            int seq = (m.getData().get(1) >> 2) & 0b111;
+                            int frag = m.getData().get(1) & 0b11;
+                            int payld = m.getData().get(2) >> 2;
+                            int sender = m.getData().get(2) & 0b11;
+                            int offset = m.getData().get(3);
+                            /*
+                            if destination, append to fragmentedlist,
+                             */
+                            if(dst == client.getAddress()){
+                                // we print under any method
+                            }else if(nxt == client.getAddress()){
+
+                            }
 
 //                            if (directions.size() != 4) {
 //                                directions.clear();
