@@ -343,7 +343,7 @@ public class MyProtocol {
                         }
                     }
 
-                } else if (text.length() > 59) {
+                } else if (text.length() > 58) {
                     System.out.println("Text is too long, please shorten it");
                 } else {
                     //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
