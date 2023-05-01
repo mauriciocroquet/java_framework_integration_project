@@ -2,7 +2,6 @@ import client.*;
 import com.sun.source.tree.IntersectionTypeTree;
 
 import java.nio.ByteBuffer;
-import java.io.IOException;
 import java.util.Date;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
@@ -555,7 +554,6 @@ public class MyProtocol {
 
                                 forwardingTable.mergeTables(neighbour);
                                 forwardingTable.print();
-//                                forwardingTable.print();
                                 //now change sender and put it in the sending queue
                                 //send a new updated message of the FT
                                 byte[] header = new byte[2];
