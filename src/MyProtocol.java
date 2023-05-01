@@ -27,9 +27,9 @@ public class MyProtocol {
 
     private final List<String> printed = new ArrayList<>();
     private final HashMap<Byte, List<Message>> fragmentationMap = new HashMap<>();
-    private final long globalTimer;
-    private final int addressingTime = 50000;
-    private final int waiter = 90000;
+    private long  globalTimer = 0;
+    private final int addressingTime = 60000;
+    private final int waiter = 40000;
     private final List<String> users = new ArrayList<>();
     private boolean stayAlive = true;
     private final String menu =
@@ -54,6 +54,25 @@ public class MyProtocol {
         client = new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
 
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
+
+        dynamicAddressing();
+
+        DVR();
+
+        chatRoom();
+
+    }
+
+
+
+    public static void main(String[] args) {
+        if (args.length > 0) {
+            frequency = Integer.parseInt(args[0]);
+        }
+        new MyProtocol(SERVER_IP, SERVER_PORT, frequency);
+    }
+
+    public void dynamicAddressing(){
         int address = 0;
 
         System.out.println("Estimated time is 5 minutes for convergence. Messages \nsent before the menu is printed will not be sent. \nPress enter to start addressing and DVR.");
@@ -124,8 +143,12 @@ public class MyProtocol {
         for (Integer direction : directions) {
             System.out.print(direction + ", ");
         }
-        System.out.println("\n \nAddressing complete. Starting DVR... \n");
         client.setAddress(directions.indexOf(address));
+    }
+
+    public void DVR(){
+        System.out.println("\n \nAddressing complete. Starting DVR... \n");
+
         // Start of DVR
         forwardingTable = new ForwardingTable(client.getAddress());
         receivedQueue.clear();
@@ -157,17 +180,6 @@ public class MyProtocol {
             slottedAloha(new Message(MessageType.DATA, bufferPacket));
             myWait(5000);
         }
-        chatRoom();
-
-    }
-
-
-
-    public static void main(String[] args) {
-        if (args.length > 0) {
-            frequency = Integer.parseInt(args[0]);
-        }
-        new MyProtocol(SERVER_IP, SERVER_PORT, frequency);
     }
 
     public void printMessage(Message msg) {
@@ -476,7 +488,7 @@ public class MyProtocol {
                 if (!retransmitList.contains(msg)) {
                     retransmitList.add(msg);
                 }
-                myWait(20000);
+                myWait(5000);
 
             } while (retransmitList.contains(msg));
         }
