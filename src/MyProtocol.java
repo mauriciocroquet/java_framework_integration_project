@@ -28,10 +28,13 @@ public class MyProtocol {
     private final List<String> printed = new ArrayList<>();
     private final HashMap<Byte, List<Message>> fragmentationMap = new HashMap<>();
     private long  globalTimer = 0;
-    private final int addressingTime = 60000;
-    private final int waiter = 40000;
+    private final int addressingTime = 30000;
+    private final int waiter = 60000;
     private final List<String> users = new ArrayList<>();
     private boolean stayAlive = true;
+    private boolean csmaFlag = true;
+
+    private HashMap<Integer, Integer> priorityMap = new HashMap<>();
     private final String menu =
             "COMMANDS: \n" +
                     "!name [NAME] ............ Enter your name by typing !name, a spacebar, then a name of your choice. \n" +
@@ -80,6 +83,7 @@ public class MyProtocol {
         String text = scan.nextLine();
         globalTimer = System.currentTimeMillis();
 
+        priorityMap = new HashMap<>();
         do {
             tryAgain = false;
             Random rand = new Random();
@@ -88,25 +92,36 @@ public class MyProtocol {
             directions.clear();
 
             directions.add(address);
+            priorityMap.put(address, 0);
 
 
             long timer = System.currentTimeMillis();
             while (System.currentTimeMillis() - timer < addressingTime + extra) {
+                int counter = 999;
+                int nextAddress = 0;
+                for(Integer addy: priorityMap.keySet()){
+                    if(priorityMap.get(addy) < counter){
+                        nextAddress = addy;
+                        counter = priorityMap.get(addy);
+                    }
+                }
                 System.out.println();
-                Random random = new Random();
-                int randomElement = directions.get(random.nextInt(directions.size()));
+//                Random random = new Random();
+//                int randomElement = directions.get(random.nextInt(directions.size()));
                 byte[] pkt = new byte[2];
                 pkt[0] = (byte) 0b010 << 5;
                 myWait(1000);
-                pkt[1] = (byte) randomElement;
+                pkt[1] = (byte) nextAddress;
                 ByteBuffer msg = ByteBuffer.allocate(2);
                 msg = ByteBuffer.wrap(pkt);
                 msg.put(pkt);
-                try {
-                    MAC(new Message(MessageType.DATA_SHORT, msg));
-                } catch (InterruptedException e) {
-                    System.exit(2);
-                }
+//                try {
+                    CSMA(new Message(MessageType.DATA_SHORT, msg));
+//                } catch (InterruptedException e) {
+//                    System.exit(2);
+//                }
+                int newcount = priorityMap.get(nextAddress) +1 ;
+                priorityMap.put(nextAddress, newcount);
                 for(Integer direction: directions){
                     System.out.print(direction + ", ");
                 }
@@ -231,6 +246,23 @@ public class MyProtocol {
                 }
                 return;
             }
+        }
+    }
+    
+    public void CSMA(Message msg){
+        double p = 0.36; 
+        while(true){
+//            System.out.println("dsa");
+            if(csmaFlag && new Random().nextInt(100) < p * 100){
+                try {
+                    System.out.println("Sending");
+                    sendingQueue.put(msg);
+                }catch (InterruptedException e){
+                    System.exit(2);
+                }
+               return;
+            }
+            myWait(100);
         }
     }
 
@@ -485,6 +517,7 @@ public class MyProtocol {
         public void run() {
             do {
                 slottedAloha(msg);
+
                 if (!retransmitList.contains(msg)) {
                     retransmitList.add(msg);
                 }
@@ -650,6 +683,7 @@ public class MyProtocol {
                         if (m.getData().get(0) >> 5 == 0b010 && directions.size() < 4) {
                             int neighbour = m.getData().get(1) & 0b01111111;
                             if (!directions.contains(neighbour)) {
+                                priorityMap.put(neighbour, 0);
                                 directions.add(neighbour);
                                 if (directions.size() < 4) {
                                 } else if (directions.size() == 4) {
@@ -689,6 +723,10 @@ public class MyProtocol {
                         }
                     } else if (m.getType() == MessageType.END) {
                         System.exit(0);
+                    } else if (m.getType() == MessageType.BUSY) {
+                        csmaFlag = false;
+                    } else if(m.getType() == MessageType.FREE){
+                        csmaFlag = true;
                     }
                 } catch (InterruptedException e) {
                     System.err.println("Failed to take from queue: " + e);
