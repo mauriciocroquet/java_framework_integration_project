@@ -54,14 +54,19 @@ public class MyProtocol {
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
 
+
+        // global variable for myProtocol -- used to recognize its own address
         client = new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
 
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
 
+        // dynamic addressing phase
         dynamicAddressing();
 
+        // DvR phase
         DVR();
 
+        // chat phase
         chatRoom();
 
     }
@@ -77,76 +82,78 @@ public class MyProtocol {
 
     public void dynamicAddressing(){
         int address = 0;
+        // address will be picked when loop initiates
 
         System.out.println("Estimated time is 5 minutes for convergence. Messages \nsent before the menu is printed will not be sent. \nPress enter to start addressing and DVR.");
         Scanner scan = new Scanner(System.in);
-        String text = scan.nextLine();
+        String text = scan.nextLine(); // only waiting for an enter (to make it easier to start all nodes simultaneously)
         globalTimer = System.currentTimeMillis();
 
-        priorityMap = new HashMap<>();
+        priorityMap = new HashMap<>();// newest idea to make dynamic addressing faster
+
+
         do {
             tryAgain = false;
             Random rand = new Random();
-            address = rand.nextInt(127);
+            address = rand.nextInt(127); // to allocate a number in 7 bits
             System.out.println("Your new address: " + address + ". Propagating address list...");
             directions.clear();
 
             directions.add(address);
-            priorityMap.put(address, 0);
+            priorityMap.put(address, 0); // places its address on hash map with a value representing the ammount of times such key has
+                                         // propagated
 
 
             long timer = System.currentTimeMillis();
             while (System.currentTimeMillis() - timer < addressingTime + extra) {
                 int counter = 999;
                 int nextAddress = 0;
-                for(Integer addy: priorityMap.keySet()){
+                for(Integer addy: priorityMap.keySet()){ // takes the address that has been propagated the least
                     if(priorityMap.get(addy) < counter){
                         nextAddress = addy;
                         counter = priorityMap.get(addy);
                     }
                 }
                 System.out.println();
-//                Random random = new Random();
-//                int randomElement = directions.get(random.nextInt(directions.size()));
-                byte[] pkt = new byte[2];
-                pkt[0] = (byte) 0b010 << 5;
-                myWait(1000);
-                pkt[1] = (byte) nextAddress;
+                byte[] pkt = new byte[2]; // encoding of the data short to send single chosen address
+                pkt[0] = (byte) 0b010 << 5; // 010 is the identifier for a new incoming address (parsed as a DATA_SHORT)
+//                myWait(1000);
+                pkt[1] = (byte) nextAddress; // encoding address into the second byte of the data short
                 ByteBuffer msg = ByteBuffer.allocate(2);
                 msg = ByteBuffer.wrap(pkt);
                 msg.put(pkt);
 //                try {
-                    CSMA(new Message(MessageType.DATA_SHORT, msg));
+                    CSMA(new Message(MessageType.DATA_SHORT, msg)); // sending now as csma
 //                } catch (InterruptedException e) {
 //                    System.exit(2);
 //                }
-                int newcount = priorityMap.get(nextAddress) +1 ;
-                priorityMap.put(nextAddress, newcount);
-                for(Integer direction: directions){
+                int newcount = priorityMap.get(nextAddress) +1 ; // increases the counter of the address just sent
+                priorityMap.put(nextAddress, newcount); // updates
+                for(Integer direction: directions){ // prints addresses
                     System.out.print(direction + ", ");
                 }
 
             }
-            if (directions.size() == 4) {
-                tryAgain = false;
+            if (directions.size() == 4) { // waiting to see if any node didnt recieve 4 addresses
+                tryAgain = false; // should turn to true if the process needs to restart
                 myWait(8000);
             } else {
-                byte[] trypkt = new byte[2];
+                byte[] trypkt = new byte[2]; // sending a tryagain packet with identifier 001, this removes previous directions and starts again
                 trypkt[0] = 0b001 << 5;
                 ByteBuffer tryoktBuffer = ByteBuffer.wrap(trypkt);
                 long timertry = System.currentTimeMillis();
                 while (System.currentTimeMillis() - timertry < 7000) {
                     try {
-                        MAC(new Message(MessageType.DATA_SHORT, tryoktBuffer));
+                        MAC(new Message(MessageType.DATA_SHORT, tryoktBuffer)); // propagating tryagain message
                     } catch (InterruptedException e) {
                         System.exit(2);
                     }
                 }
-                extra += 40000;
+                extra += 40000; // adds extra compilation time
             }
 
         } while (tryAgain);
-        users.add("0");
+        users.add("0"); // string representing each node, they will later be needed to change users names
         users.add("1");
         users.add("2");
         users.add("3");
@@ -158,14 +165,14 @@ public class MyProtocol {
         for (Integer direction : directions) {
             System.out.print(direction + ", ");
         }
-        client.setAddress(directions.indexOf(address));
+        client.setAddress(directions.indexOf(address)); // dynamic addressing concluded
     }
 
     public void DVR(){
         System.out.println("\n \nAddressing complete. Starting DVR... \n");
 
         // Start of DVR
-        forwardingTable = new ForwardingTable(client.getAddress());
+        forwardingTable = new ForwardingTable(client.getAddress()); // generates a new forwarding table for the node
         receivedQueue.clear();
         sendingQueue.clear();
 
@@ -176,7 +183,8 @@ public class MyProtocol {
         /**
          * These next commented out lines are for the attempt of implementing slotted Aloha.
          */
-        while (System.currentTimeMillis() - globalTimer < waiter + extra + addressingTime) {
+        while (System.currentTimeMillis() - globalTimer < waiter + extra + addressingTime) { // every iteration of the loop, the node sends
+                                                                                             // its updated version of DVR
 //        for(int i = 0; i < 16; i++){
             byte[] dvrPkt = new byte[2];
             // i=indentifier, s= source, h=hops, n= next hop
@@ -193,11 +201,12 @@ public class MyProtocol {
 
             ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
             slottedAloha(new Message(MessageType.DATA, bufferPacket));
-            myWait(5000);
+            myWait(5000); // collision precausion due to sending longer messages
         }
     }
 
-    public void printMessage(Message msg) {
+    public void printMessage(Message msg) { // needs no further explanation other than parsing the message and extracting text
+                                            // also dropping any duplicates/retransmissions
         ByteBuffer bb = msg.getData();
         byte[] bytes = bb.array();
         int payloadLen = (bytes[2] >> 2);
@@ -208,7 +217,7 @@ public class MyProtocol {
         }
         List<String> words = List.of(text.split(" "));
         if (words.size() == 2 && words.get(0).equals("!name")) {
-            users.set(sender, words.get(1));
+            users.set(sender, words.get(1)); // updates the name of the sender in the users String list
         }
         if (!printed.contains(text) && !(words.size() == 2 && words.get(0).equals("!name"))) {
             System.out.print("[" + users.get(sender) + "]: "); // change this sender later
@@ -262,7 +271,7 @@ public class MyProtocol {
                 }
                return;
             }
-            myWait(100);
+            myWait(200);
         }
     }
 
@@ -301,31 +310,10 @@ public class MyProtocol {
         }
     }
 
-    public void propagatePureTables(int ms, Message msg) {
-        try {
-            long start = System.currentTimeMillis();
-            while (System.currentTimeMillis() - start < ms) {
-                myWait(13000);
-                MAC(msg);
-            }
-
-        } catch (InterruptedException e) {
-            System.exit(2);
-        }
-    }
-
-    public void propagateSlotted(int ms, Message msg) {
-        long start = System.currentTimeMillis();
-        while (System.currentTimeMillis() - start < ms) {
-            slottedMAC(msg);
-        }
-
-    }
-
     public void chatRoom() {
         while (System.currentTimeMillis() < addressingTime + waiter + 10000) {
             // wait some time
-        }
+        }                                   // this print dialog doesnt always appear in the right time while debugging
         System.out.println("Finished! Here is your forwarding table");
         forwardingTable.print();
         System.out.println("\n" + menu);
@@ -373,6 +361,7 @@ public class MyProtocol {
                         for (String fragment : message) {
                             byte[] header = new byte[4];
                             int fragFlag = 0;
+                            // structure of fragmented pkg
                             //011ssdd0 0nnqqqf0 ppppp0aa 0ooooooo
 
                             header[0] = (byte) (0b011 << 5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
@@ -417,6 +406,7 @@ public class MyProtocol {
 //                        }
 //                    }
                 } else {
+                    // single message format
                     //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
                     //s = source, d = destination, q = sequence number, f= fragmentation flg, p = payload length, 29 bytes data/payload allocated
                     Message message;
@@ -440,7 +430,7 @@ public class MyProtocol {
         }
     }
 
-    public void fragmentationFinder(byte key, Message frag) {
+    public void fragmentationFinder(byte key, Message frag) { // not yeat working for packet fragmentation
         if (fragmentationMap.containsKey(key)) {
             // we know it has two then we print them in order
             List<Message> fragments = fragmentationMap.get(key);
@@ -461,14 +451,15 @@ public class MyProtocol {
         }
     }
 
-    public byte[] ackBuilder(int src, int dest, int sequenceNum, int frag) {
+    public byte[] ackBuilder(int src, int dest, int sequenceNum, int frag) { // generates acks depending in incoming info
         byte[] ack = new byte[2];
+        //  000ssdd0 000qqqff
         ack[0] = (byte) ((src << 3) | (dest << 1));
         ack[1] = (byte) ((sequenceNum << 2) | frag);
         return ack;
     }
 
-    private class printThread extends Thread {
+    private class printThread extends Thread { // not in use rn
         private final Message msg;
 
         public printThread(Message msg) {
@@ -505,7 +496,7 @@ public class MyProtocol {
 
         }
     }
-    private class retransmitList extends Thread {
+    private class retransmitList extends Thread { // retransmits messages every 5 seconds if no ack corresponding has been recieved
         private final Message msg;
 
         public retransmitList(Message msg) {
@@ -541,7 +532,7 @@ public class MyProtocol {
                     Message m = receivedQueue.take();
                     if (m.getType() == MessageType.DATA) {
                         if (m.getType() == MessageType.DATA && m.getData().get(0) >> 5 == 0b011) {
-
+                            // this is baris attempt at fragmentation
                             //011ssdd0 0nnqqqf0 ppppp0aa
                             // reciever side example:
                             // that is to place info into the packet
@@ -618,7 +609,7 @@ public class MyProtocol {
                                     slottedAloha(new Message(MessageType.DATA, bufferPacket));
                                 }
 
-
+                                // in other words, recieve a table, increase its hops, merge it to yours and propagate it
 
                             }
                         } else if (m.getData().get(0) >> 5 == 0b0 && !ackList.contains(m)) {
@@ -650,6 +641,7 @@ public class MyProtocol {
                                     new printThread(m).start();
 
                                 } else {
+                                    // this should mean fragmentation, it was paused as baris wanted to try something else
                                     byte[] id = new byte[1];
                                     id[0] = (byte) ((src << 6) | (dst << 4) | (seq << 1) | ((frag & 0b10) >> 1));
                                     fragmentationFinder(id[0], m);
@@ -673,14 +665,13 @@ public class MyProtocol {
                                 byte[] packet = new byte[header.length + payload.length];
                                 System.arraycopy(header, 0, packet, 0, header.length);
                                 System.arraycopy(payload, 0, packet, header.length, payload.length);
-                                // nunca lo estabamos mandando
 //                                System.out.println("Should send this to someone else");
 //                                System.out.println("This is address: " + client.getAddress() + " and sending it to: " + newNextHop);
                                 new retransmitList(new Message(MessageType.DATA, ByteBuffer.wrap(packet))).start();
                             }
                         }
                     } else if (m.getType() == MessageType.DATA_SHORT) {
-                        if (m.getData().get(0) >> 5 == 0b010 && directions.size() < 4) {
+                        if (m.getData().get(0) >> 5 == 0b010 && directions.size() < 4) { // catches a neighbour for dynamic addressing
                             int neighbour = m.getData().get(1) & 0b01111111;
                             if (!directions.contains(neighbour)) {
                                 priorityMap.put(neighbour, 0);
@@ -690,10 +681,10 @@ public class MyProtocol {
                                     endFlood = true;
                                 }
                             }
-                        } else if (m.getData().get(0) >> 5 == 0b011) {
-                            endFlood = true;
+                        } else if (m.getData().get(0) >> 5 == 0b011) { // no longer needed after new implementation of dynamic addressing
+                            endFlood = true; // all nodes are ready to proceed
                             propagatePure(1000, m);
-                        } else if (m.getData().get(0) >> 5 == 0b0) {
+                        } else if (m.getData().get(0) >> 5 == 0b0) { // acknowledgement builder for incoming text messages
                             // check if pending is waiting on this ack to avoid retransmission
                             int src = m.getData().get(0) >> 3;
                             int dst = m.getData().get(0) >> 1 & 0b11;
@@ -710,10 +701,10 @@ public class MyProtocol {
                                         break;
                                     }
                                 }
-                                retransmitList.remove(temp);
+                                retransmitList.remove(temp); // removes message waiting to be sent again
 
                             }
-                        } else if (m.getData().get(0) >> 5 == 0b001) {
+                        } else if (m.getData().get(0) >> 5 == 0b001) { // to loop back into dynamic addressing if it fails
                             tryAgain = true;
                             long lasttimer = System.currentTimeMillis();
                             while (System.currentTimeMillis() - lasttimer < 2000) {
