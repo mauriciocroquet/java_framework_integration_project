@@ -22,7 +22,7 @@ public class MyProtocol {
     private final boolean ACK = false;
     private final List<String> names = new ArrayList<>();
     private final List<ObjReceived> printingList = new ArrayList<>();
-    private final List<Message> retransmitList = new ArrayList<>();//ack list
+    private final List<Message> retransmitList = new ArrayList<>();
     private final List<ObjReceived> ackList = new ArrayList<>();
 
     private final List<String> printed = new ArrayList<>();
@@ -177,9 +177,6 @@ public class MyProtocol {
         sendingQueue.clear();
 
 
-
-
-
         /**
          * These next commented out lines are for the attempt of implementing slotted Aloha.
          */
@@ -200,7 +197,7 @@ public class MyProtocol {
             System.arraycopy(payload, 0, fullpacket, dvrPkt.length, payload.length);
 
             ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
-            slottedAloha(new Message(MessageType.DATA, bufferPacket));
+            slottedAlohaTables(new Message(MessageType.DATA, bufferPacket));
             myWait(5000); // collision precausion due to sending longer messages
         }
     }
@@ -290,6 +287,21 @@ public class MyProtocol {
         }
     }
 
+    public void slottedAlohaTables(Message msg){
+        while(true){
+            Date date = new Date(System.currentTimeMillis());
+            if((date.getTime()/3000)%4==client.getAddress() && (date.getTime()%3000 > 2100) && sendingQueue.size()<2){ // previously 5000
+//                System.out.println("Sending " + client.getAddress());
+                try{
+                    sendingQueue.put(msg);
+                    return;
+                }catch(InterruptedException e){
+                    System.exit(2);
+                }
+            }
+        }
+    }
+
     // Java's own wait() was not working as intended, hence we implemented this method.
     public void myWait(int ms) {
         long start = System.currentTimeMillis();
@@ -354,34 +366,33 @@ public class MyProtocol {
 
                 if(text.length() > 28){
 
-                    String[] message = text.split("(?<=\\G.{28})");
-                    updateSeq(); // cahnges the sequence number, note: this makes all fragments have the same seq # but the fragflag can be distinct
-                    for(int i = 0; i < 3; i++){
-                        int offset = 0;
-                        for (String fragment : message) {
-                            byte[] header = new byte[4];
-                            int fragFlag = 0;
-                            // structure of fragmented pkg
-                            //011ssdd0 0nnqqqf0 ppppp0aa 0ooooooo
-
-                            header[0] = (byte) (0b011 << 5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
-                            header[1] = (byte) (forwardingTable.getNextHop(forwardingTable.getNeigbours().get(i)) << 5 | sequenceNum << 2 | fragFlag);
-                            header[2] = (byte) (fragment.length() << 5 | client.getAddress());
-                            header[3] = (byte) offset;
-                            byte[] payload = fragment.getBytes(); // gets the specific fragment mentioned
-
-                            byte[] packet = new byte[header.length + payload.length]; // all this should only be copying both arrays to one complete byte[]
-                            System.arraycopy(header, 0, packet, 0, header.length);
-                            System.arraycopy(payload, 0, packet, header.length, payload.length);
-                            ByteBuffer msg = ByteBuffer.wrap(packet); // into a bytebuffer
-                            Message frag = new Message(MessageType.DATA, msg); // bytebuffer into a message
-                            new retransmitList(frag).start(); // thread that send the message
-                            offset += 1;
-                        }
-                    }
-
-
-                   /* Message message = null;
+//                    String[] message = text.split("(?<=\\G.{28})");
+//                    updateSeq(); // changes the sequence number, note: this makes all fragments have the same seq # but the fragflag can be distinct
+//                    for(int i = 0; i < 3; i++){
+//                        int offset = 0;
+//                        for (String fragment : message) {
+//                            byte[] header = new byte[4];
+//                            int fragFlag = 0;
+//                            // structure of fragmented pkg
+//                            //011ssdd0 0nnqqqf0 ppppp0aa 0ooooooo
+//
+//                            header[0] = (byte) (0b011 << 5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+//                            header[1] = (byte) (forwardingTable.getNextHop(forwardingTable.getNeigbours().get(i)) << 5 | sequenceNum << 2 | fragFlag);
+//                            header[2] = (byte) (fragment.length() << 5 | client.getAddress());
+//                            header[3] = (byte) offset;
+//                            byte[] payload = fragment.getBytes(); // gets the specific fragment mentioned
+//
+//                            byte[] packet = new byte[header.length + payload.length]; // all this should only be copying both arrays to one complete byte[]
+//                            System.arraycopy(header, 0, packet, 0, header.length);
+//                            System.arraycopy(payload, 0, packet, header.length, payload.length);
+//                            ByteBuffer msg = ByteBuffer.wrap(packet); // into a bytebuffer
+//                            Message frag = new Message(MessageType.DATA, msg); // bytebuffer into a message
+//                            new retransmitList(frag).start(); // thread that send the message
+//                            offset += 1;
+//                        }
+//                    }
+                    // back to the old method
+                    Message message = null;
                     String part1 = text.substring(0, 28);
                     String part2 = text.substring(29);
                     for (int j = 0; j < 2; j++) {
@@ -393,8 +404,8 @@ public class MyProtocol {
                             } else {
                                 payload = part2.getBytes();
                             }
-                            //011ssdd0 0nnqqqff ppppp0aa
-                            header[0] = (byte) (0b011<<5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+                            //000ssdd0 0nnqqqff ppppp0aa
+                            header[0] = (byte) (0b000<<5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
                             header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2 | (j == 0 ? 0b01 : 0b10));
                             header[2] = (byte) (payload.length << 2 | client.getAddress());
                             byte[] packet = new byte[header.length + payload.length];
@@ -402,9 +413,9 @@ public class MyProtocol {
                             System.arraycopy(payload, 0, packet, header.length, payload.length);
                             ByteBuffer msg = ByteBuffer.wrap(packet);
                             message = new Message(MessageType.DATA, msg);
-                            new retransmitList(message).start();*/
-//                        }
-//                    }
+                            new retransmitList(message).start();
+                        }
+                    }
                 } else {
                     // single message format
                     //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
@@ -430,20 +441,20 @@ public class MyProtocol {
         }
     }
 
-    public void fragmentationFinder(byte key, Message frag) { // not yeat working for packet fragmentation
-        if (fragmentationMap.containsKey(key)) {
+    public void fragmentationFinder(byte key, Message frag, byte fragFlag) { // not yeat working for packet fragmentation
+        if (fragmentationMap.containsKey(key) && fragmentationMap.get(key).get(0) != frag) {
             // we know it has two then we print them in order
             List<Message> fragments = fragmentationMap.get(key);
-            if ((fragments.get(0).getData().array()[1] & 0b1) < (frag.getData().array()[1] & 0b1)) {
+            if (fragFlag == 0b10) {
                 // print frag first
-                printMessage(frag);
                 printMessage(fragments.get(0));
+                printMessage(frag);
             } else {
                 // print fragments.get(0) first
-                printMessage(fragments.get(0));
                 printMessage(frag);
+                printMessage(fragments.get(0));
             }
-        } else {
+        } else if(!(fragmentationMap.containsKey(key))){
             List<Message> values = new ArrayList<>();
             values.add(frag);
             fragmentationMap.put(key, values);
@@ -597,7 +608,8 @@ public class MyProtocol {
                                 //make new packet of hops 0, sender you, source you, payload your FT
                                 sender = client.getAddress();
                                 header[1] = (byte) (src << 5 | hops << 2 | sender);
-                                byte[] payload = forwardingTable.toBytes();
+                                neighbour.mergeTables(forwardingTable);
+                                byte[] payload = neighbour.toBytes();
                                 byte[] fullpacket = new byte[header.length + payload.length];
 
                                 System.arraycopy(header, 0, fullpacket, 0, header.length);
@@ -606,7 +618,7 @@ public class MyProtocol {
                                 ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
 
                                 if(System.currentTimeMillis() - globalTimer < waiter + extra + addressingTime) {
-                                    slottedAloha(new Message(MessageType.DATA, bufferPacket));
+                                    slottedAlohaTables(new Message(MessageType.DATA, bufferPacket));
                                 }
 
                                 // in other words, recieve a table, increase its hops, merge it to yours and propagate it
@@ -627,6 +639,7 @@ public class MyProtocol {
                             int sender = m.getData().get(2) & 0b11;
                             if (dst == client.getAddress()) {
 
+
                                 byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
 //                                ackList.add(new ObjReceived(System.currentTimeMillis(), m));
@@ -643,8 +656,8 @@ public class MyProtocol {
                                 } else {
                                     // this should mean fragmentation, it was paused as baris wanted to try something else
                                     byte[] id = new byte[1];
-                                    id[0] = (byte) ((src << 6) | (dst << 4) | (seq << 1) | ((frag & 0b10) >> 1));
-                                    fragmentationFinder(id[0], m);
+                                    id[0] = (byte) ((src << 6) | (dst << 4) | (seq << 1));
+                                    fragmentationFinder(id[0], m, (byte)frag);
                                 }
                             } else if (nxt == client.getAddress()) {
                                 //send packet to the updated next hop based on FT

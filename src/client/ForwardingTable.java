@@ -121,6 +121,14 @@ public class ForwardingTable {
         }
         return nexthop;
     }
+    public boolean complete(){
+        for(int i = 0; i < 4; ++i){
+            if(fTable[i][1] == INF){
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 
