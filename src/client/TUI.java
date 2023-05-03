@@ -46,14 +46,12 @@
 //                case HELP -> System.out.println(menu);
 //                case SUBMARINES -> {
 //                    System.out.println("You are connected with the following submarines: ");
-//                                // TODO get the nodes
 //                    }
 //
 //
 //
 //                case TABLE -> {
 //                    System.out.println("This is your forwarding table:");
-//                    // TODO get the table
 //                }
 //                case EXIT -> exit = true;
 ////                default -> {
