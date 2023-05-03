@@ -5,6 +5,8 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import static java.lang.Thread.sleep;
+
 public class MyProtocol {
 
     // The host to connect to. Set this to localhost when using the audio interface tool.
@@ -32,7 +34,7 @@ public class MyProtocol {
      * Testruns with the line topology without packet loss:
      * 13s, 14s, 16s, 16s, 22s, 24s, 29s, 30s, 38s, DNF 3x
      */
-    private final int waiter = 100000;
+    private final int waiter = 30000;
     private final List<String> users = new ArrayList<>();
     private final String menu =
             "COMMANDS: \n" +
@@ -126,11 +128,7 @@ public class MyProtocol {
                 ByteBuffer msg = ByteBuffer.allocate(2);
                 msg = ByteBuffer.wrap(pkt);
                 msg.put(pkt);
-//                try {
                 CSMA(new Message(MessageType.DATA_SHORT, msg)); // sending now as csma
-//                } catch (InterruptedException e) {
-//                    System.exit(2);
-//                }
                 int newcount = priorityMap.get(nextAddress) + 1; // increases the counter of the address just sent
                 priorityMap.put(nextAddress, newcount); // updates
                 for (Integer direction : directions) { // prints addresses
@@ -140,18 +138,18 @@ public class MyProtocol {
             }
             if (directions.size() == 4) { // waiting to see if any node didnt recieve 4 addresses
                 tryAgain = false; // should turn to true if the process needs to restart
-                myWait(8000);
+                try {
+                    sleep(5000);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             } else {
                 byte[] trypkt = new byte[2]; // sending a tryagain packet with identifier 001, this removes previous directions and starts again
                 trypkt[0] = 0b001 << 5;
                 ByteBuffer tryoktBuffer = ByteBuffer.wrap(trypkt);
                 long timertry = System.currentTimeMillis();
                 while (System.currentTimeMillis() - timertry < 7000) {
-                    try {
-                        MAC(new Message(MessageType.DATA_SHORT, tryoktBuffer)); // propagating tryagain message
-                    } catch (InterruptedException e) {
-                        System.exit(2);
-                    }
+                    CSMA(new Message(MessageType.DATA_SHORT, tryoktBuffer)); // propagating tryagain message
                 }
                 extra += 40000; // adds extra compilation time
             }
@@ -170,6 +168,7 @@ public class MyProtocol {
             System.out.print(direction + ", ");
         }
         client.setAddress(directions.indexOf(address)); // dynamic addressing concluded
+        csmaFlag = true;
     }
 
     public void DVR() {
@@ -199,7 +198,25 @@ public class MyProtocol {
 
             ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
             slottedAlohaTables(new Message(MessageType.DATA, bufferPacket));
-            myWait(5000); // collision precausion due to sending longer messages
+
+//             might need to remove
+            try {
+                sleep(5000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } // collision precausion due to sending longer messages
+        }
+
+        while(!forwardingTable.complete()){
+            byte[] tableIncomp = new byte[2];
+            tableIncomp[0] = 0b011<<5;
+            System.out.println("table incomplete, requesting...");
+            CSMA(new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(tableIncomp)));
+            try {
+                sleep(5000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
@@ -230,7 +247,11 @@ public class MyProtocol {
         double p = 0.25;
         int time = msg.getType() == MessageType.DATA ? 1500 : 200;
         while (trying) {
-            myWait(time);
+            try {
+                sleep(time);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
             if (new Random().nextInt(100) < p * 100) {
                 sendingQueue.put(msg);
                 trying = false;
@@ -270,7 +291,11 @@ public class MyProtocol {
                 }
                 return;
             }
-            myWait(200);
+            try {
+                sleep(200);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
@@ -369,33 +394,6 @@ public class MyProtocol {
 
 
                 if (text.length() > 28) {
-
-//                    String[] message = text.split("(?<=\\G.{28})");
-//                    updateSeq(); // changes the sequence number, note: this makes all fragments have the same seq # but the fragflag can be distinct
-//                    for(int i = 0; i < 3; i++){
-//                        int offset = 0;
-//                        for (String fragment : message) {
-//                            byte[] header = new byte[4];
-//                            int fragFlag = 0;
-//                            // structure of fragmented pkg
-//                            //011ssdd0 0nnqqqf0 ppppp0aa 0ooooooo
-//
-//                            header[0] = (byte) (0b011 << 5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
-//                            header[1] = (byte) (forwardingTable.getNextHop(forwardingTable.getNeigbours().get(i)) << 5 | sequenceNum << 2 | fragFlag);
-//                            header[2] = (byte) (fragment.length() << 5 | client.getAddress());
-//                            header[3] = (byte) offset;
-//                            byte[] payload = fragment.getBytes(); // gets the specific fragment mentioned
-//
-//                            byte[] packet = new byte[header.length + payload.length]; // all this should only be copying both arrays to one complete byte[]
-//                            System.arraycopy(header, 0, packet, 0, header.length);
-//                            System.arraycopy(payload, 0, packet, header.length, payload.length);
-//                            ByteBuffer msg = ByteBuffer.wrap(packet); // into a bytebuffer
-//                            Message frag = new Message(MessageType.DATA, msg); // bytebuffer into a message
-//                            new retransmitList(frag).start(); // thread that send the message
-//                            offset += 1;
-//                        }
-//                    }
-                    // back to the old method
                     Message message = null;
                     String part1 = text.substring(0, 28);
                     String part2 = text.substring(29);
@@ -409,7 +407,7 @@ public class MyProtocol {
                                 payload = part2.getBytes();
                             }
                             //000ssdd0 0nnqqqff ppppp0aa
-                            header[0] = (byte) (0b000 << 5 | client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
+                            header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
                             header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2 | (j == 0 ? 0b01 : 0b10));
                             header[2] = (byte) (payload.length << 2 | client.getAddress());
                             byte[] packet = new byte[header.length + payload.length];
@@ -523,12 +521,16 @@ public class MyProtocol {
         @Override
         public void run() {
             do {
-                slottedAloha(msg);
+                CSMA(msg);
 
                 if (!retransmitList.contains(msg)) {
                     retransmitList.add(msg);
                 }
-                myWait(5000);
+                try {
+                    sleep(10000);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
 
             } while (retransmitList.contains(msg));
         }
@@ -547,46 +549,8 @@ public class MyProtocol {
                 try {
                     Message m = receivedQueue.take();
                     if (m.getType() == MessageType.DATA) {
-                        if (m.getType() == MessageType.DATA && m.getData().get(0) >> 5 == 0b011) {
-                            // this is baris attempt at fragmentation
-                            //011ssdd0 0nnqqqf0 ppppp0aa
-                            // reciever side example:
-                            // that is to place info into the packet
-//                            byte[] header = new byte[3];
-//                            header[0] = 0b011<<5 | client.getAddress() << 3 |
+                        if (directions.size() == 4 && m.getData().get(0) >> 5 == 0b010) { // added the && to avoid this if
 
-                            // this is how you extract info from the packet
-
-                            //011ssdd0 0nnqqqf0 ppppp0aa 0ooooooo
-
-                            int src = m.getData().get(0) >> 3 & 0b111;
-                            int dst = (m.getData().get(0) >> 1) & 0b11;
-                            int nxt = m.getData().get(1) >> 5 & 0b11;
-                            int seq = (m.getData().get(1) >> 2) & 0b111;
-                            int frag = m.getData().get(1) & 0b11;
-                            int payld = m.getData().get(2) >> 2;
-                            int sender = m.getData().get(2) & 0b11;
-                            int offset = m.getData().get(3);
-                            /*
-                            if destination, append to fragmentedlist,
-                             */
-                            if (dst == client.getAddress()) {
-                                // we print under any method
-                            } else if (nxt == client.getAddress()) {
-
-                            }
-
-//                            if (directions.size() != 4) {
-//                                directions.clear();
-//                                // type: DATA, Parsing: 01100000 0xxxxxxx 0yyyyyyy 0zzzzzzz 0ooooooo
-//                                directions.add((int) m.getData().get(1));
-//                                directions.add((int) m.getData().get(2));
-//                                directions.add((int) m.getData().get(3));
-//                                directions.add((int) m.getData().get(4));
-//                            }
-//
-//                            propagatePureTables(1500, m);
-                        } else if (directions.size() == 4 && m.getData().get(0) >> 5 == 0b010) { // added the && to avoid this if
                             // all the rest and after DVR
                             // format iii00000 0dd-hhh-nn
                             if (m.getData().get(0) >> 5 == 0b010 && ((m.getData().get(1) & 0b11100) >> 2) != 0b11) { // 010 is the identifier for DVR
@@ -595,7 +559,6 @@ public class MyProtocol {
                                 int sender = m.getData().get(1) & 0b11;
 
                                 hops++;
-//                                System.out.println("It took: " + hops + " hops to get from " + src + " to " + client.getAddress() + ", nb: " + sender );
                                 ForwardingTable neighbour = new ForwardingTable(m.getData().array());
                                 if (forwardingTable == null) {
                                     forwardingTable = new ForwardingTable(client.getAddress());
@@ -606,27 +569,7 @@ public class MyProtocol {
 
                                 forwardingTable.mergeTables(neighbour);
                                 forwardingTable.print();
-                                //now change sender and put it in the sending queue
-                                //send a new updated message of the FT
-                                byte[] header = new byte[2];
-                                header[0] = (byte) (0b010 << 5);
-                                //make new packet of hops 0, sender you, source you, payload your FT
-                                sender = client.getAddress();
-                                header[1] = (byte) (src << 5 | hops << 2 | sender);
-                                neighbour.mergeTables(forwardingTable);
-                                byte[] payload = neighbour.toBytes();
-                                byte[] fullpacket = new byte[header.length + payload.length];
 
-                                System.arraycopy(header, 0, fullpacket, 0, header.length);
-                                System.arraycopy(payload, 0, fullpacket, header.length, payload.length);
-
-                                ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
-
-                                if (System.currentTimeMillis() - globalTimer < waiter + extra + addressingTime) {
-                                    slottedAlohaTables(new Message(MessageType.DATA, bufferPacket));
-                                }
-
-                                // in other words, recieve a table, increase its hops, merge it to yours and propagate it
 
                             }
                         } else if (m.getData().get(0) >> 5 == 0b0 && !ackList.contains(m)) {
@@ -643,13 +586,12 @@ public class MyProtocol {
                             int payld = m.getData().get(2) >> 2;
                             int sender = m.getData().get(2) & 0b11;
                             if (dst == client.getAddress()) {
-
+                                System.out.println("message recieved");
 
                                 byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
 //                                ackList.add(new ObjReceived(System.currentTimeMillis(), m));
 //                                new ackThread(msg).start();
-                                slottedAloha(msg);
                                 // there is still a need to ack other msgs (not for u but in the path of the node)
                                 // ack thread
 
@@ -664,12 +606,13 @@ public class MyProtocol {
                                     id[0] = (byte) ((src << 6) | (dst << 4) | (seq << 1));
                                     fragmentationFinder(id[0], m, (byte) frag);
                                 }
+                                CSMA(msg);
                             } else if (nxt == client.getAddress()) {
                                 //send packet to the updated next hop based on FT
                                 //dst remains same, source is current node, next is modified
                                 byte[] ack = ackBuilder(nxt, src, seq, frag);
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
-                                slottedAloha(msg);
+                                CSMA(msg);
 
                                 int newNextHop = forwardingTable.getNextHop(dst); // this has to be the next hop of the destination
                                 byte[] header = new byte[3];
@@ -699,9 +642,6 @@ public class MyProtocol {
                                     endFlood = true;
                                 }
                             }
-                        } else if (m.getData().get(0) >> 5 == 0b011) { // no longer needed after new implementation of dynamic addressing
-                            endFlood = true; // all nodes are ready to proceed
-                            propagatePure(1000, m);
                         } else if (m.getData().get(0) >> 5 == 0b0) { // acknowledgement builder for incoming text messages
                             // check if pending is waiting on this ack to avoid retransmission
                             int src = m.getData().get(0) >> 3;
@@ -726,9 +666,28 @@ public class MyProtocol {
                             tryAgain = true;
                             long lasttimer = System.currentTimeMillis();
                             while (System.currentTimeMillis() - lasttimer < 2000) {
-                                MAC(m);
+                                CSMA(m);
                             }
                             extra += 40000;
+                        } else if (m.getData().get(0) >> 5 == 0b011){
+                            // DVR of neighbour incomplete
+
+                            byte[] dvrPkt = new byte[2];
+                            // i=indentifier, s= source, h=hops, n= next hop
+                            // format: iii00000 0ss-hhh-nn
+
+                            dvrPkt[0] = (byte) (0b010 << 5);
+                            dvrPkt[1] = (byte) ((client.getAddress() << 5) | (client.getAddress()));
+
+                            byte[] payload = forwardingTable.toBytes();
+                            byte[] fullpacket = new byte[dvrPkt.length + payload.length];
+
+                            System.arraycopy(dvrPkt, 0, fullpacket, 0, dvrPkt.length);
+                            System.arraycopy(payload, 0, fullpacket, dvrPkt.length, payload.length);
+
+                            ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
+                            slottedAlohaTables(new Message(MessageType.DATA, bufferPacket));
+
                         }
                     } else if (m.getType() == MessageType.END) {
                         System.exit(0);
