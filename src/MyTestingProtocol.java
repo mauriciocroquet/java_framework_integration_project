@@ -41,6 +41,7 @@ public class MyTestingProtocol {
                     "!help ................... Print out these commands if you forget what there are. \n" +
                     "!submarines ............. Display all current online submarines (nodes) in the chat. \n" +
                     "!table .................. Print your routing table \n" +
+                    "!neighbors .................. Print your routing table \n" +
                     "!exit ................... Exit the program and any chat you are in. \n";
     // View the simulator at https://netsys.ewi.utwente.nl/integrationproject/
     boolean endFlood = false;
@@ -251,41 +252,12 @@ public class MyTestingProtocol {
 
     }
 
-    public void MAC(Message msg) throws InterruptedException {
-        boolean trying = true;
-        double p = 0.25;
-        int time = msg.getType() == MessageType.DATA ? 1500 : 200;
-        while (trying) {
-            try {
-                sleep(time);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-            if (new Random().nextInt(100) < p * 100) {
-                sendingQueue.put(msg);
-                trying = false;
-            }
-        }
-    }
 
     public void updateSeq() { // just to update sequence numbers while chatting
         sequenceNum++;
         sequenceNum = sequenceNum % 8;
     }
 
-    public void slottedMAC(Message msg) { // can only be used after dynamic addressing is done
-        while (true) {
-            Date dateTime = new Date();
-            if ((dateTime.getTime() % 1000 > client.getAddress() * 250L) && (dateTime.getTime() % 600 < (client.getAddress() * 250L) + 250)) {
-                try {
-                    sendingQueue.put(msg);
-                } catch (InterruptedException e) {
-                    System.exit(2);
-                }
-                return;
-            }
-        }
-    }
 
     public synchronized void CSMA(Message msg) {
         synchronized (this){
@@ -347,26 +319,6 @@ public class MyTestingProtocol {
         }
     }
 
-    // Java's own wait() was not working as intended, hence we implemented this method.
-    public void myWait(int ms) {
-        long start = System.currentTimeMillis();
-        while (System.currentTimeMillis() - start < ms) {
-        }
-    }
-
-    public void propagatePure(int ms, Message msg) {
-        try {
-            long start = System.currentTimeMillis();
-            while (System.currentTimeMillis() - start < ms) {
-
-                MAC(msg);
-            }
-
-        } catch (InterruptedException e) {
-            System.exit(2);
-        }
-    }
-
     public void chatRoom() {
         while (System.currentTimeMillis() < addressingTime + waiter + 10000) {
             // wait some time
@@ -396,6 +348,20 @@ public class MyTestingProtocol {
                         System.out.println(name);
                     }
                 }
+            }else if (Objects.equals(text, "!neighbors")) {
+                System.out.println("These are your neighbors: ");
+                List<Integer> nb = forwardingTable.getNeigbours();
+                boolean none = true;
+                for(Integer neighbor: nb){
+                    if(forwardingTable.getCost(neighbor) == 1){
+                        System.out.println("()-> ["+users.get(neighbor)+"]");
+                        none = false;
+                    }
+                    if(none){
+                        System.out.println("No neighbors found");
+                    }
+                }
+                System.out.println();
             } else if (Objects.equals(text, "!table")) {
                 System.out.println("This is your forwarding table: \n");
                 forwardingTable.print();
@@ -500,14 +466,6 @@ public class MyTestingProtocol {
             fragmentationMap.put(key, values);
 
         }
-    }
-
-    public byte[] ackBuilder(int src, int dest, int sequenceNum, int frag) { // generates acks depending in incoming info
-        byte[] ack = new byte[2];
-        //  000ssdd0 000qqqff
-        ack[0] = (byte) ((src << 3) | (dest << 1));
-        ack[1] = (byte) ((sequenceNum << 2) | frag);
-        return ack;
     }
 
     private class printThread extends Thread { // not in use rn
@@ -751,9 +709,6 @@ public class MyTestingProtocol {
                                 Message temp = null;
                                 for (Message msg : retransmitList) {
                                     byte[] info = msg.getData().array();
-                                    int srcofMsg = info[0] >> 3;
-                                    int nextHop = info[1] >> 5; // 000SSDD0
-                                    int sequenceOfNumWFlag = info[1] & 0b11111; // 000QQQFF
                                     if (info[0] == m.getData().get(0) && info[1] == m.getData().get(1)) {
                                         System.out.println("Message from " + dst + " to " + src + " with #" + sequence + " will be removed");
                                         temp = msg;

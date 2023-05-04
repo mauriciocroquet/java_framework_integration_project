@@ -41,6 +41,7 @@ public class MyProtocol {
                     "!help ................... Print out these commands if you forget what there are. \n" +
                     "!submarines ............. Display all current online submarines (nodes) in the chat. \n" +
                     "!table .................. Print your routing table \n" +
+                    "!neighbors .................. Print your routing table \n" +
                     "!exit ................... Exit the program and any chat you are in. \n";
     // View the simulator at https://netsys.ewi.utwente.nl/integrationproject/
     boolean endFlood = false;
@@ -53,6 +54,12 @@ public class MyProtocol {
     private boolean tryAgain = true;
     private int extra = 0;
 
+    /**
+     * MyProtocol initiates all three stages of the program which include: Dynamic Addressing, DVR, Chat Room
+     * @param server_ip
+     * @param server_port
+     * @param frequency
+     */
     public MyProtocol(String server_ip, int server_port, int frequency) {
 
         receivedQueue = new LinkedBlockingQueue<Message>();
@@ -75,7 +82,6 @@ public class MyProtocol {
 
     }
 
-
     public static void main(String[] args) {
         if (args.length > 0) {
             frequency = Integer.parseInt(args[0]);
@@ -83,6 +89,15 @@ public class MyProtocol {
         new MyProtocol(SERVER_IP, SERVER_PORT, frequency);
     }
 
+    /**
+     * dynamicAddressing protocol,takes care of finding all addresses close by
+     * The methods to do this include:
+     * Selecting a random number from 0 - 127 (7 bits long to fit in a data short packet)
+     * Use of a Hash map with all received and own addresses as keys when received, this is to link a address with the amount of
+     * times its been propagated so that the address with least propagations is able to traverse faster through nodes
+     * After recieveing all addresses they get sorted on a list and each node recognizes its own, later taking the index on the organized list
+     * as its new address (to reduce the address to 2 bits)
+     */
     public void dynamicAddressing() {
         int address = 0;
         // address will be picked when loop initiates
@@ -119,10 +134,8 @@ public class MyProtocol {
                         counter = priorityMap.get(addy);
                     }
                 }
-//                System.out.println();
                 byte[] pkt = new byte[2]; // encoding of the data short to send single chosen address
                 pkt[0] = (byte) 0b010 << 5; // 010 is the identifier for a new incoming address (parsed as a DATA_SHORT)
-//                myWait(1000);
                 pkt[1] = (byte) nextAddress; // encoding address into the second byte of the data short
                 ByteBuffer msg = ByteBuffer.allocate(2);
                 msg = ByteBuffer.wrap(pkt);
@@ -130,9 +143,6 @@ public class MyProtocol {
                 CSMA(new Message(MessageType.DATA_SHORT, msg)); // sending now as csma
                 int newcount = priorityMap.get(nextAddress) + 1; // increases the counter of the address just sent
                 priorityMap.put(nextAddress, newcount); // updates
-//                for (Integer direction : directions) { // prints addresses
-//                    System.out.print(direction + ", ");
-//                }
 
             }
             if (directions.size() == 4) { // waiting to see if any node didnt recieve 4 addresses
@@ -170,6 +180,10 @@ public class MyProtocol {
         csmaFlag = true;
     }
 
+    /**
+     * DVR protocol guarantees convergence with an approximate time of 50 seconds
+     * Nodes exchange table and when receiving they merge with neighbouring tables
+     */
     public void DVR() {
         System.out.println("\n \nAddressing complete. Starting DVR... \n");
 
@@ -180,8 +194,7 @@ public class MyProtocol {
 
 
         while (System.currentTimeMillis() - globalTimer < waiter + extra + addressingTime) { // every iteration of the loop, the node sends
-            // its updated version of DVR
-//        for(int i = 0; i < 16; i++){
+
             byte[] dvrPkt = new byte[2];
             // i=indentifier, s= source, h=hops, n= next hop
             // format: iii00000 0ss-hhh-nn
@@ -198,7 +211,6 @@ public class MyProtocol {
             ByteBuffer bufferPacket = ByteBuffer.wrap(fullpacket);
             slottedAlohaTables(new Message(MessageType.DATA, bufferPacket));
 
-//             might need to remove
             try {
                 sleep(5000);
             } catch (InterruptedException e) {
@@ -218,6 +230,10 @@ public class MyProtocol {
         }
     }
 
+    /**
+     * printMessage takes a whole Message type packet and parses it to examine payload length, the sender and possible commands
+     * @param msg
+     */
     public void printMessage(Message msg) { // needs no further explanation other than parsing the message and extracting text
         // also dropping any duplicates/retransmissions
         ByteBuffer bb = msg.getData();
@@ -247,42 +263,20 @@ public class MyProtocol {
         }
     }
 
-    public void MAC(Message msg) throws InterruptedException {
-        boolean trying = true;
-        double p = 0.25;
-        int time = msg.getType() == MessageType.DATA ? 1500 : 200;
-        while (trying) {
-            try {
-                sleep(time);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-            if (new Random().nextInt(100) < p * 100) {
-                sendingQueue.put(msg);
-                trying = false;
-            }
-        }
-    }
-
+    /**
+     * Takes care of updating sequence numbers before sending messages
+     */
     public void updateSeq() { // just to update sequence numbers while chatting
         sequenceNum++;
         sequenceNum = sequenceNum % 8;
     }
 
-    public void slottedMAC(Message msg) { // can only be used after dynamic addressing is done
-        while (true) {
-            Date dateTime = new Date();
-            if ((dateTime.getTime() % 1000 > client.getAddress() * 250L) && (dateTime.getTime() % 600 < (client.getAddress() * 250L) + 250)) {
-                try {
-                    sendingQueue.put(msg);
-                } catch (InterruptedException e) {
-                    System.exit(2);
-                }
-                return;
-            }
-        }
-    }
 
+    /**
+     * CSMA protocol takes into account a flag turned on/off in the receiver side in order to allow it to propagate a message when the
+     * network isn't Type BUSY
+     * @param msg
+     */
     public synchronized void CSMA(Message msg) {
         synchronized (this){
             double p = 0.25;
@@ -328,11 +322,14 @@ public class MyProtocol {
         }
     }
 
+    /**
+     * Slotted aloha implementation with time slices of 3 seconds and optimized for sending packets during the DVR phase
+     * @param msg
+     */
     public void slottedAlohaTables(Message msg) {
         while (true) {
             Date date = new Date(System.currentTimeMillis());
             if ((date.getTime() / 3000) % 4 == client.getAddress() && (date.getTime() % 3000 > 2100) && sendingQueue.size() < 2) { // previously 5000
-//                System.out.println("Sending " + client.getAddress());
                 try {
                     sendingQueue.put(msg);
                     return;
@@ -343,26 +340,10 @@ public class MyProtocol {
         }
     }
 
-    // Java's own wait() was not working as intended, hence we implemented this method.
-    public void myWait(int ms) {
-        long start = System.currentTimeMillis();
-        while (System.currentTimeMillis() - start < ms) {
-        }
-    }
-
-    public void propagatePure(int ms, Message msg) {
-        try {
-            long start = System.currentTimeMillis();
-            while (System.currentTimeMillis() - start < ms) {
-
-                MAC(msg);
-            }
-
-        } catch (InterruptedException e) {
-            System.exit(2);
-        }
-    }
-
+    /**
+     * Chat room is the third and final phase which consists of allowing local commands as well as fragmenting packets up to
+     * 54 characters long
+     */
     public void chatRoom() {
         while (System.currentTimeMillis() < addressingTime + waiter + 10000) {
             // wait some time
@@ -393,9 +374,19 @@ public class MyProtocol {
                     }
                 }
             } else if (Objects.equals(text, "!neighbors")) {
-                System.out.println("These are your neighbors: \n");
+                System.out.println("These are your neighbors: ");
                 List<Integer> nb = forwardingTable.getNeigbours();
-                
+                boolean none = true;
+                for(Integer neighbor: nb){
+                    if(forwardingTable.getCost(neighbor) == 1){
+                        System.out.println("()-> ["+users.get(neighbor)+"]");
+                        none = false;
+                    }
+                    if(none){
+                        System.out.println("No neighbors found");
+                    }
+                }
+                System.out.println();
             } else if (Objects.equals(text, "!table")) {
                 System.out.println("This is your forwarding table: \n");
                 forwardingTable.print();
@@ -505,14 +496,9 @@ public class MyProtocol {
         }
     }
 
-    public byte[] ackBuilder(int src, int dest, int sequenceNum, int frag) { // generates acks depending in incoming info
-        byte[] ack = new byte[2];
-        //  000ssdd0 000qqqff
-        ack[0] = (byte) ((src << 3) | (dest << 1));
-        ack[1] = (byte) ((sequenceNum << 2) | frag);
-        return ack;
-    }
-
+    /**
+     * Thread meant to print text messages recieved on the reciever side of the protocol
+     */
     private class printThread extends Thread { // not in use rn
         private final Message msg;
 
@@ -551,32 +537,24 @@ public class MyProtocol {
         }
     }
 
+    /**
+     * Retransmission protocol, holding on to a message and checking for acknowledgements every 10 seconds
+     */
     private class retransmitThread extends Thread { // retransmits messages every 5 seconds if no ack corresponding has been recieved
         private final Message msg;
-        private int rn;
 
         public retransmitThread(Message msg) {
             super();
             this.msg = msg;
-            Random rand = new Random();
-            rn = rand.nextInt(200);
         }
 
         @Override
         public void run() {
-            int src = msg.getData().get(0) >> 3;
-            int dst = (msg.getData().get(0) >> 1) & 0b11;
-            int nxt = msg.getData().get(1) >> 5;
-            int seq = (msg.getData().get(1) >> 2) & 0b111;
-            int frag = msg.getData().get(1) & 0b11;
             while (retransmitList.contains(msg)) {
                 if(retransmitList.contains(msg)){
                     CSMA(msg);
                 }
 
-//                if (!retransmitList.contains(msg)) {
-//                    retransmitList.add(msg);
-//                }
                 try {
                     sleep(10000);
                 } catch (InterruptedException e) {
@@ -587,6 +565,9 @@ public class MyProtocol {
         }
     }
 
+    /**
+     * Thread used to send acknowledgements
+     */
     public class ackThread extends Thread{
         private final Message msg;
 
@@ -601,6 +582,9 @@ public class MyProtocol {
         }
     }
 
+    /**
+     * Receiver side of the program, parses and identifies messages to carry out what they are supposed to do
+     */
     private class receiveThread extends Thread {
         private final BlockingQueue<Message> receivedQueue;
 
@@ -632,11 +616,10 @@ public class MyProtocol {
                                     forwardingTable.newRoute(src, hops, sender);
                                 }
                                 forwardingTable.mergeTables(neighbour);
-//                                forwardingTable.print();
                             }
                         } else if (m.getData().get(0) >> 5 == 0b0 && !(m.getData().get(3) > 0b100)) {
 
-                            //text message format: 000ssdd0 0nnqqqff pppppoo0 00000ttt +29bytes
+                            //text message format: 000ssdd0 0nnqqqff 0pppppoo 00000ttt +29bytes
                             //ss=source; dd= destination; nn= next hop; qqq= seq no; ff=fragmentation
                             //ff== 00 -> no fragmentation; ff== 01 ->frag + first packet from frag;
                             //ff== 10 -> frag + last packet
@@ -650,7 +633,6 @@ public class MyProtocol {
                             int sende = m.getData().get(2) & 0b11;
                             int ttl = m.getData().get(3) & 0b111;
                             if (dst == client.getAddress()) {
-//                                byte[] ack = ackBuilder(dst, src, seq, frag);
                                 byte[] ack = new byte[2];
                                 ack[0] = m.getData().get(0);
                                 ack[1] = m.getData().get(1);
@@ -672,7 +654,6 @@ public class MyProtocol {
                             } else if (nxt == client.getAddress()) {
                                 //send packet to the updated next hop based on FT
                                 //dst remains same, source is current node, next is modified
-//                                byte[] ack = ackBuilder(dst, src, seq, frag);
                                 ttl +=1;
                                 byte[] ack = new byte[2];
                                 ack[0] = m.getData().get(0);
@@ -716,7 +697,6 @@ public class MyProtocol {
                                     // no: retransmit and ack
                                     if(!ackList.contains(m)){
                                         ackList.add(m);
-//                                        System.out.println("Rerouting message to: " + newNextHop + ", with destination: " + dst);
                                         retransmitList.add(message);
                                         new retransmitThread(message).start();
                                     }
@@ -747,9 +727,6 @@ public class MyProtocol {
                                 Message temp = null;
                                 for (Message msg : retransmitList) {
                                     byte[] info = msg.getData().array();
-                                    int srcofMsg = info[0] >> 3;
-                                    int nextHop = info[1] >> 5; // 000SSDD0
-                                    int sequenceOfNumWFlag = info[1] & 0b11111; // 000QQQFF
                                     if (info[0] == m.getData().get(0) && info[1] == m.getData().get(1)) {
                                         temp = msg;
                                         break;
