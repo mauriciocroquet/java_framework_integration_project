@@ -342,7 +342,7 @@ public class MyProtocol {
 
     /**
      * Chat room is the third and final phase which consists of allowing local commands as well as fragmenting packets up to
-     * 54 characters long
+     * 56 characters long
      */
     public void chatRoom() {
         while (System.currentTimeMillis() < addressingTime + waiter + 10000) {
@@ -718,7 +718,7 @@ public class MyProtocol {
                             }
                         } else if (m.getData().get(0) >> 5 == 0b0) { // acknowledgement builder for incoming text messages
                             // check if pending is waiting on this ack to avoid retransmission
-                            // packet format: 000ssdd0 0nnqqqff ppppp000
+                            // packet format: 000ssdd0 0nnqqqff 0pppppnn
                             // ack    format: 000ssdd0 0nnqqqff
                             int src = m.getData().get(0) >> 3;
                             int dst = m.getData().get(0) >> 1 & 0b11;
