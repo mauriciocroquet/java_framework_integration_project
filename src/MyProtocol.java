@@ -7,6 +7,14 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 import static java.lang.Thread.sleep;
 
+/**
+ * Group 64 - Java
+ * Participants:
+ * Mauricio Croquet Thorne, s3009440
+ * Bogdan Busui, s3010082
+ * Baris Yilmaz, s2968525
+ */
+
 public class MyProtocol {
 
     // The host to connect to. Set this to localhost when using the audio interface tool.
