@@ -24,6 +24,7 @@ public class MyProtocol {
     private final List<ObjReceived> printingList = new ArrayList<>();
     private final static List<Message> retransmitList = new ArrayList<>();
     private final List<Message> ackList = new ArrayList<>();
+    private final HashMap<Message, Long> receivedMap = new HashMap<>();
 
     private final List<String> printed = new ArrayList<>();
     private final HashMap<Byte, List<Message>> fragmentationMap = new HashMap<>();
@@ -306,15 +307,17 @@ public class MyProtocol {
     }
 
     public void slottedAloha(Message msg) {
-        while (true) {
-            Date date = new Date(System.currentTimeMillis());
-            if ((date.getTime() / 4500) % 4 == client.getAddress() && (date.getTime() % 4500 > 2100) && sendingQueue.size() < 2) { // previously 5000
+        synchronized (this){
+            while (true) {
+                Date date = new Date(System.currentTimeMillis());
+                if ((date.getTime() / 4500) % 4 == client.getAddress() && (date.getTime() % 4500 > 2100) && sendingQueue.size() < 2) { // previously 5000
 //                System.out.println("Sending " + client.getAddress());
-                try {
-                    sendingQueue.put(msg);
-                    return;
-                } catch (InterruptedException e) {
-                    System.exit(2);
+                    try {
+                        sendingQueue.put(msg);
+                        return;
+                    } catch (InterruptedException e) {
+                        System.exit(2);
+                    }
                 }
             }
         }
@@ -540,7 +543,7 @@ public class MyProtocol {
             while (retransmitList.contains(msg)) {
                 System.out.println(rn+ ": Retransmit from " + src + " to " + dst + " with #: " + seq );
                 if(retransmitList.contains(msg)){
-                    CSMA(msg);
+                    slottedAloha(msg);
                 }
 
 //                if (!retransmitList.contains(msg)) {
@@ -567,7 +570,7 @@ public class MyProtocol {
         @Override
         public void run() {
             System.out.println("Ack");
-            CSMA(msg);
+            slottedAloha(msg);
         }
     }
 
@@ -606,7 +609,7 @@ public class MyProtocol {
                             }
                         } else if (m.getData().get(0) >> 5 == 0b0) {
 
-                            //text message format: 000ssdd0 nnqqqff pppppoo0 +29bytes
+                            //text message format: 000ssdd0 0nnqqqff pppppoo0 +29bytes
                             //ss=source; dd= destination; nn= next hop; qqq= seq no; ff=fragmentation
                             //ff== 00 -> no fragmentation; ff== 01 ->frag + first packet from frag;
                             //ff== 10 -> frag + last packet
@@ -621,7 +624,10 @@ public class MyProtocol {
                             int sende = m.getData().get(2) & 0b11;
                             if (dst == client.getAddress()) {
                                 System.out.println("recieved message and im the dest");
-                                byte[] ack = ackBuilder(client.getAddress(), src, seq, frag);
+//                                byte[] ack = ackBuilder(dst, src, seq, frag);
+                                byte[] ack = new byte[2];
+                                ack[0] = m.getData().get(0);
+                                ack[1] = m.getData().get(1);
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
 
                                 new ackThread(msg).start();
@@ -640,33 +646,59 @@ public class MyProtocol {
                             } else if (nxt == client.getAddress()) {
                                 //send packet to the updated next hop based on FT
                                 //dst remains same, source is current node, next is modified
-                                byte[] ack = ackBuilder(nxt, src, seq, frag);
+//                                byte[] ack = ackBuilder(dst, src, seq, frag);
+                                byte[] ack = new byte[2];
+                                ack[0] = m.getData().get(0);
+                                ack[1] = m.getData().get(1);
                                 Message msg = new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(ack));
                                 new ackThread(msg).start();
-                                int newNextHop = forwardingTable.getNextHop(dst); // this has to be the next hop of the destination
-                                byte[] header = new byte[3];
-                                header[0] = (byte) ((client.getAddress() << 3) | dst << 1);
-                                header[1] = (byte) ((newNextHop << 5) | (seq << 2) | frag);
-                                header[2] = m.getData().get(2);
 
-                                byte[] payload = Arrays.copyOfRange(m.getData().array(), 3, m.getData().array().length); // could be -1
+                                boolean containsOlder = true;
 
-                                byte[] packet = new byte[header.length + payload.length];
-                                System.arraycopy(header, 0, packet, 0, header.length);
-                                System.arraycopy(payload, 0, packet, header.length, payload.length);
-                                Message message = new Message(MessageType.DATA, ByteBuffer.wrap(packet));
-
-                                // ask yourself have i received this packet before
-                                // yes: dont retrasmit, only ack..
-                                // no: retransmit and ack
-                                if(!ackList.contains(m)){
-                                    ackList.add(m);
-                                    System.out.println("Rerouting message to: " + newNextHop + ", with destination: " + dst);
-                                    retransmitList.add(message);
-                                    new retransmitThread(message).start();
-                                }else{
-                                    System.out.println("avoided retransmitting for nothing");
+                                if(receivedMap.size()!=0) {
+                                    while (containsOlder) {
+                                        Message rep = null;
+                                        containsOlder = false;
+                                        for (Message ackMessage : receivedMap.keySet()) {
+                                            System.out.println(ackMessage + ", this message is: " + (System.currentTimeMillis()-receivedMap.get(ackMessage)) + " long");
+                                            if (System.currentTimeMillis() - receivedMap.get(ackMessage) > 10000) {
+                                                rep = ackMessage;
+                                                System.out.println("removing older messages");
+                                                containsOlder = true;
+                                            }
+                                        }
+                                        receivedMap.remove(rep);
+                                    }
                                 }
+                                if(!receivedMap.containsKey(m)){
+                                    receivedMap.put(m, System.currentTimeMillis());
+                                    int newNextHop = forwardingTable.getNextHop(dst); // this has to be the next hop of the destination
+                                    byte[] header = new byte[3];
+                                    header[0] = (byte) ((client.getAddress() << 3) | dst << 1);
+                                    header[1] = (byte) ((newNextHop << 5) | (seq << 2) | frag);
+                                    header[2] = m.getData().get(2);
+
+                                    byte[] payload = Arrays.copyOfRange(m.getData().array(), 3, m.getData().array().length); // could be -1
+
+                                    byte[] packet = new byte[header.length + payload.length];
+                                    System.arraycopy(header, 0, packet, 0, header.length);
+                                    System.arraycopy(payload, 0, packet, header.length, payload.length);
+                                    Message message = new Message(MessageType.DATA, ByteBuffer.wrap(packet));
+
+                                    // ask yourself have i received this packet before.
+                                    // yes: dont retrasmit, only ack..
+                                    // no: retransmit and ack
+                                    if(!ackList.contains(m)){
+                                        ackList.add(m);
+//                                        System.out.println("Rerouting message to: " + newNextHop + ", with destination: " + dst);
+                                        retransmitList.add(message);
+                                        new retransmitThread(message).start();
+                                    }else{
+                                        System.out.println("avoided retransmitting for nothing");
+                                    }
+                                }
+
+
                             }
                         }
                     } else if (m.getType() == MessageType.DATA_SHORT) {
@@ -682,23 +714,28 @@ public class MyProtocol {
                             }
                         } else if (m.getData().get(0) >> 5 == 0b0) { // acknowledgement builder for incoming text messages
                             // check if pending is waiting on this ack to avoid retransmission
+                            // packet format: 000ssdd0 0nnqqqff ppppp000
+                            // ack    format: 000ssdd0 0nnqqqff
                             int src = m.getData().get(0) >> 3;
                             int dst = m.getData().get(0) >> 1 & 0b11;
                             int sequence = m.getData().get(1) & 0b11111;
-                            if (client.getAddress() == dst) {
+                            if (client.getAddress() == src) {
                                 Message temp = null;
                                 for (Message msg : retransmitList) {
                                     byte[] info = msg.getData().array();
                                     int srcofMsg = info[0] >> 3;
                                     int nextHop = info[1] >> 5; // 000SSDD0
                                     int sequenceOfNumWFlag = info[1] & 0b11111; // 000QQQFF
-                                    if (srcofMsg == dst && nextHop == src && sequenceOfNumWFlag == sequence) {
+                                    if (info[0] == m.getData().get(0) && info[1] == m.getData().get(1)) {
                                         System.out.println("Message from " + dst + " to " + src + " with #" + sequence + " will be removed");
                                         temp = msg;
                                         break;
                                     }
                                 }
                                 retransmitList.remove(temp); // removes message waiting to be sent again
+                                if(retransmitList.contains(temp)){
+                                    System.out.println("removing from ack list unsuccessfull");
+                                }
 
                             }
                         } else if (m.getData().get(0) >> 5 == 0b001) { // to loop back into dynamic addressing if it fails
