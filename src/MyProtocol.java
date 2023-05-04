@@ -138,7 +138,7 @@ public class MyProtocol {
             if (directions.size() == 4) { // waiting to see if any node didnt recieve 4 addresses
                 tryAgain = false; // should turn to true if the process needs to restart
                 try {
-                    sleep(5000);
+                    sleep(8000);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
@@ -150,7 +150,7 @@ public class MyProtocol {
                 while (System.currentTimeMillis() - timertry < 7000) {
                     CSMA(new Message(MessageType.DATA_SHORT, tryoktBuffer)); // propagating tryagain message
                 }
-                extra += 40000; // adds extra compilation time
+                extra += 48000; // adds extra compilation time
             }
 
         } while (tryAgain);
@@ -209,7 +209,6 @@ public class MyProtocol {
         while(!forwardingTable.complete()){
             byte[] tableIncomp = new byte[2];
             tableIncomp[0] = 0b011<<5;
-            System.out.println("table incomplete, requesting...");
             CSMA(new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(tableIncomp)));
             try {
                 sleep(5000);
@@ -223,22 +222,29 @@ public class MyProtocol {
         // also dropping any duplicates/retransmissions
         ByteBuffer bb = msg.getData();
         byte[] bytes = bb.array();
+        // 000ssdd0 0nnsssff 0pppppoo 00000ttt
+
         int payloadLen = (bytes[2] >> 2);
         String text = "";
         int sender = bytes[2] & 0b11;
         for (int i = 0; i < payloadLen; i++) {
-            text += (char) bytes[3 + i];
+            text += (char) bytes[4 + i];
         }
-        List<String> words = List.of(text.split(" "));
-        if (words.size() == 2 && words.get(0).equals("!name")) {
-            users.set(sender, words.get(1)); // updates the name of the sender in the users String list
+        if(!printed.contains(text) ){
+            System.out.println();
+            List<String> words = List.of(text.split(" "));
+            if (words.size() == 2 && words.get(0).equals("!name")) {
+                String past = users.get(sender);
+                users.set(sender, words.get(1)); // updates the name of the sender in the users String list
+                System.out.println("Name of [" + past + "] updated to: " + words.get(1));
+            }
+            if (!(words.size() == 2 && words.get(0).equals("!name"))) {
+                System.out.print("[" + users.get(sender) + "]: "); // change this sender later
+                System.out.println(text);
+            }
+            printed.add(text);
+            System.out.print("["+users.get(client.getAddress())+"]: ");
         }
-        if (!printed.contains(text) && !(words.size() == 2 && words.get(0).equals("!name"))) {
-            System.out.print("[" + users.get(sender) + "]: "); // change this sender later
-            System.out.println(text);
-        }
-        printed.add(text);
-
     }
 
     public void MAC(Message msg) throws InterruptedException {
@@ -282,7 +288,6 @@ public class MyProtocol {
             double p = 0.25;
             byte[] ident = msg.getData().array();
             if(ident[0] << 5 == 0b0 && msg.getType() == MessageType.DATA_SHORT){ //acks have priority
-                System.out.println("1o");
                 p = 1;
             }
             while (true) {
@@ -396,18 +401,19 @@ public class MyProtocol {
                 byte[] goodbye = new byte[2];
                 goodbye[0] = 0b011 << 5;
                 goodbye[1] = (byte) client.getAddress();
-                propagatePure(1000, new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(goodbye)));
+                CSMA(new Message(MessageType.DATA_SHORT, ByteBuffer.wrap(goodbye)));
                 System.exit(0);
             } else {
                 //011ssdd0 0nnqqqf0 ppppp0aa should be the format for the fragmented header
-
-                if (text.length() > 28) {
+                if(text.length() > 54){
+                    System.out.println("Packet i");
+                }else if (text.length() > 27) {
                     Message message = null;
-                    String part1 = text.substring(0, 28);
-                    String part2 = text.substring(29);
+                    String part1 = text.substring(0, 27);
+                    String part2 = text.substring(28);
                     for (int j = 0; j < 2; j++) {
                         for (int i = 0; i < 3; i++) {
-                            byte[] header = new byte[3];
+                            byte[] header = new byte[4];
                             byte[] payload;
                             if (j == 0) {
                                 payload = part1.getBytes();
@@ -418,34 +424,46 @@ public class MyProtocol {
                             header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
                             header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2 | (j == 0 ? 0b01 : 0b10));
                             header[2] = (byte) (payload.length << 2 | client.getAddress());
+                            header[3] = 0b0;
                             byte[] packet = new byte[header.length + payload.length];
                             System.arraycopy(header, 0, packet, 0, header.length);
                             System.arraycopy(payload, 0, packet, header.length, payload.length);
                             ByteBuffer msg = ByteBuffer.wrap(packet);
                             message = new Message(MessageType.DATA, msg);
+                            retransmitList.add(message);
                             new retransmitThread(message).start();
+                            try{
+                                sleep(2000);
+                            }catch (InterruptedException e){ // you should add that too to mytesting protocol
+                                System.out.println(e);
+                            }
                         }
                     }
                 } else {
                     // single message format
-                    //text message format: 000ssdd0 nnqqqff ppppp000 +29bytes
+                    //text message format: 000ssdd0 nnqqqff 0pppppoo +29bytes
                     //s = source, d = destination, q = sequence number, f= fragmentation flg, p = payload length, 29 bytes data/payload allocated
                     Message message;
                     for (int i = 0; i < 3; i++) {
-                        byte[] header = new byte[3];
+                        byte[] header = new byte[4];
                         byte[] payload = text.getBytes();
                         header[0] = (byte) (client.getAddress() << 3 | forwardingTable.getNeigbours().get(i) << 1);
                         header[1] = (byte) (forwardingTable.getNextHops().get(i) << 5 | sequenceNum << 2); // no frag
                         header[2] = (byte) (payload.length << 2 | client.getAddress());
+                        header[3] = 0b0;
                         byte[] packet = new byte[header.length + payload.length];
                         System.arraycopy(header, 0, packet, 0, header.length);
                         System.arraycopy(payload, 0, packet, header.length, payload.length);
                         ByteBuffer msg = ByteBuffer.wrap(packet);
                         message = new Message(MessageType.DATA, msg);
-                        System.out.println("Original to: " + ((header[0]>>1) & 0b11));
 
                         retransmitList.add(message);
                         new retransmitThread(message).start();
+                        try{
+                            sleep(2000);
+                        }catch (InterruptedException e){
+                            System.out.println(e);
+                        }
 
                     }
                 }
@@ -455,18 +473,61 @@ public class MyProtocol {
         }
     }
 
+    /**
+     * Method for printing single messages and fragments of at most 2.
+     * @param key
+     * @param frag
+     * @param fragFlag
+     */
     public void fragmentationFinder(byte key, Message frag, byte fragFlag) { // not yeat working for packet fragmentation
         if (fragmentationMap.containsKey(key) && fragmentationMap.get(key).get(0) != frag) {
             // we know it has two then we print them in order
             List<Message> fragments = fragmentationMap.get(key);
             if (fragFlag == 0b10) {
-                // print frag first
-                printMessage(fragments.get(0));
-                printMessage(frag);
+                int payld = frag.getData().get(2) >> 2;
+                // Get the two fragments based on the flag
+                byte[] payload1 = Arrays.copyOfRange(fragments.get(0).getData().array(), 4, 31); // 000ssdd0 0nnsssff 0ppppp00
+                byte[] payload2 = Arrays.copyOfRange(frag.getData().array(), 4, payld);
+                String part1 = new String(payload1);
+                String part2 = new String(payload2);
+                printed.add(part1);
+                printed.add(part2);
+                // This will result in the final message with the two fragments
+                String text = part1 + part2;
+                // Check if the message has already been printed - Print it if it was not already printed
+                if( !printed.contains(text)) {
+                    System.out.println();
+                    int sender = frag.getData().array()[2] & 0b11;
+                    // Print the sender
+                    System.out.print("[" + users.get(sender) + "]: ");
+                    // Prin the text
+                    System.out.println(text);
+                    printed.add(text);
+                    // Print the username, but with no text, for the next message
+                    System.out.print("[" + users.get(client.getAddress()) + "]: ");
+                }
             } else {
-                // print fragments.get(0) first
-                printMessage(frag);
-                printMessage(fragments.get(0));
+                // Get the two fragments based on the flag
+                int payld = fragments.get(0).getData().get(2) >> 2;
+                byte[] payload1 = Arrays.copyOfRange(frag.getData().array(), 3, 31); // 000ssdd0 0nnsssff 0ppppp00
+                byte[] payload2 = Arrays.copyOfRange(fragments.get(0).getData().array(), 3, payld);
+                String part1 = new String(payload1);
+                String part2 = new String(payload2);
+                printed.add(part1);
+                printed.add(part2);
+                // This will result in the final message with the two fragments
+                String text = part1 + part2;
+                // Check if the message has already been printed - Print it if it was not already printed
+                if(!printed.contains(text)){
+                    System.out.println();
+                    int sender = frag.getData().array()[2] & 0b11;
+                    // Print the sender
+                    System.out.print("[" + users.get(sender) + "]: ");
+                    System.out.println(text);
+                    printed.add(text);
+
+                    System.out.print("[" + users.get(client.getAddress()) + "]: ");
+                }
             }
         } else if (!(fragmentationMap.containsKey(key))) {
             List<Message> values = new ArrayList<>();
@@ -541,16 +602,15 @@ public class MyProtocol {
             int seq = (msg.getData().get(1) >> 2) & 0b111;
             int frag = msg.getData().get(1) & 0b11;
             while (retransmitList.contains(msg)) {
-                System.out.println(rn+ ": Retransmit from " + src + " to " + dst + " with #: " + seq );
                 if(retransmitList.contains(msg)){
-                    slottedAloha(msg);
+                    CSMA(msg);
                 }
 
 //                if (!retransmitList.contains(msg)) {
 //                    retransmitList.add(msg);
 //                }
                 try {
-                    sleep(5000);
+                    sleep(10000);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
@@ -569,8 +629,7 @@ public class MyProtocol {
 
         @Override
         public void run() {
-            System.out.println("Ack");
-            slottedAloha(msg);
+            CSMA(msg);
         }
     }
 
@@ -607,23 +666,22 @@ public class MyProtocol {
                                 forwardingTable.mergeTables(neighbour);
 //                                forwardingTable.print();
                             }
-                        } else if (m.getData().get(0) >> 5 == 0b0) {
+                        } else if (m.getData().get(0) >> 5 == 0b0 && !(m.getData().get(3) > 0b100)) {
 
-                            //text message format: 000ssdd0 0nnqqqff pppppoo0 +29bytes
+                            //text message format: 000ssdd0 0nnqqqff pppppoo0 00000ttt +29bytes
                             //ss=source; dd= destination; nn= next hop; qqq= seq no; ff=fragmentation
                             //ff== 00 -> no fragmentation; ff== 01 ->frag + first packet from frag;
                             //ff== 10 -> frag + last packet
 
                             int src = m.getData().get(0) >> 3;
                             int dst = (m.getData().get(0) >> 1) & 0b11;
-                            System.out.println("destination: " + dst );
                             int nxt = m.getData().get(1) >> 5;
                             int seq = (m.getData().get(1) >> 2) & 0b111;
                             int frag = m.getData().get(1) & 0b11;
                             int payld = m.getData().get(2) >> 2;
                             int sende = m.getData().get(2) & 0b11;
+                            int ttl = m.getData().get(3) & 0b111;
                             if (dst == client.getAddress()) {
-                                System.out.println("recieved message and im the dest");
 //                                byte[] ack = ackBuilder(dst, src, seq, frag);
                                 byte[] ack = new byte[2];
                                 ack[0] = m.getData().get(0);
@@ -647,6 +705,7 @@ public class MyProtocol {
                                 //send packet to the updated next hop based on FT
                                 //dst remains same, source is current node, next is modified
 //                                byte[] ack = ackBuilder(dst, src, seq, frag);
+                                ttl +=1;
                                 byte[] ack = new byte[2];
                                 ack[0] = m.getData().get(0);
                                 ack[1] = m.getData().get(1);
@@ -660,10 +719,8 @@ public class MyProtocol {
                                         Message rep = null;
                                         containsOlder = false;
                                         for (Message ackMessage : receivedMap.keySet()) {
-                                            System.out.println(ackMessage + ", this message is: " + (System.currentTimeMillis()-receivedMap.get(ackMessage)) + " long");
                                             if (System.currentTimeMillis() - receivedMap.get(ackMessage) > 10000) {
                                                 rep = ackMessage;
-                                                System.out.println("removing older messages");
                                                 containsOlder = true;
                                             }
                                         }
@@ -673,12 +730,13 @@ public class MyProtocol {
                                 if(!receivedMap.containsKey(m)){
                                     receivedMap.put(m, System.currentTimeMillis());
                                     int newNextHop = forwardingTable.getNextHop(dst); // this has to be the next hop of the destination
-                                    byte[] header = new byte[3];
+                                    byte[] header = new byte[4];
                                     header[0] = (byte) ((client.getAddress() << 3) | dst << 1);
                                     header[1] = (byte) ((newNextHop << 5) | (seq << 2) | frag);
                                     header[2] = m.getData().get(2);
+                                    header[3] = (byte) ttl;
 
-                                    byte[] payload = Arrays.copyOfRange(m.getData().array(), 3, m.getData().array().length); // could be -1
+                                    byte[] payload = Arrays.copyOfRange(m.getData().array(), 4, m.getData().array().length); // could be -1
 
                                     byte[] packet = new byte[header.length + payload.length];
                                     System.arraycopy(header, 0, packet, 0, header.length);
@@ -693,8 +751,6 @@ public class MyProtocol {
 //                                        System.out.println("Rerouting message to: " + newNextHop + ", with destination: " + dst);
                                         retransmitList.add(message);
                                         new retransmitThread(message).start();
-                                    }else{
-                                        System.out.println("avoided retransmitting for nothing");
                                     }
                                 }
 
@@ -727,15 +783,12 @@ public class MyProtocol {
                                     int nextHop = info[1] >> 5; // 000SSDD0
                                     int sequenceOfNumWFlag = info[1] & 0b11111; // 000QQQFF
                                     if (info[0] == m.getData().get(0) && info[1] == m.getData().get(1)) {
-                                        System.out.println("Message from " + dst + " to " + src + " with #" + sequence + " will be removed");
                                         temp = msg;
                                         break;
                                     }
                                 }
                                 retransmitList.remove(temp); // removes message waiting to be sent again
-                                if(retransmitList.contains(temp)){
-                                    System.out.println("removing from ack list unsuccessfull");
-                                }
+
 
                             }
                         } else if (m.getData().get(0) >> 5 == 0b001) { // to loop back into dynamic addressing if it fails
@@ -744,7 +797,7 @@ public class MyProtocol {
                             while (System.currentTimeMillis() - lasttimer < 2000) {
                                 CSMA(m);
                             }
-                            extra += 40000;
+                            extra += 48000;
                         } else if (m.getData().get(0) >> 5 == 0b011){
                             // DVR of neighbour incomplete
 
