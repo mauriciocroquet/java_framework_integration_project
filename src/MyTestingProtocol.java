@@ -410,12 +410,10 @@ public class MyTestingProtocol {
             } else {
                 //011ssdd0 0nnqqqf0 ppppp0aa should be the format for the fragmented header
 
-                if (text.length() > 27) {
+                if (text.length() > 27 && text.length() <= 54) {
                     Message message = null;
                     String part1 = text.substring(0, 27);
-                    System.out.println(part1);
                     String part2 = text.substring(27);
-                    System.out.println(part2);
                     for (int j = 0; j < 2; j++) {
                         for (int i = 0; i < 3; i++) {
                             byte[] header = new byte[4];
@@ -445,7 +443,10 @@ public class MyTestingProtocol {
 
                         }
                     }
-                } else {
+                }else if(text.length() > 54) {
+                    // The application will support at most 2 fragments
+                    System.out.println("Message too long! Please try again");
+                }else {
                     // single message format
                     //text message format: 000ssdd0 nnqqqff 0pppppoo +29bytes
                     //s = source, d = destination, q = sequence number, f= fragmentation flg, p = payload length, 29 bytes data/payload allocated
@@ -641,7 +642,6 @@ public class MyTestingProtocol {
 
                             int src = m.getData().get(0) >> 3;
                             int dst = (m.getData().get(0) >> 1) & 0b11;
-                            System.out.println("destination: " + dst );
                             int nxt = m.getData().get(1) >> 5;
                             int seq = (m.getData().get(1) >> 2) & 0b111;
                             int frag = m.getData().get(1) & 0b11;

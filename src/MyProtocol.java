@@ -392,6 +392,10 @@ public class MyProtocol {
                         System.out.println(name);
                     }
                 }
+            } else if (Objects.equals(text, "!neighbors")) {
+                System.out.println("These are your neighbors: \n");
+                List<Integer> nb = forwardingTable.getNeigbours();
+                
             } else if (Objects.equals(text, "!table")) {
                 System.out.println("This is your forwarding table: \n");
                 forwardingTable.print();
@@ -405,9 +409,7 @@ public class MyProtocol {
                 System.exit(0);
             } else {
                 //011ssdd0 0nnqqqf0 ppppp0aa should be the format for the fragmented header
-                if(text.length() > 54){
-                    System.out.println("Packet i");
-                }else if (text.length() > 27) {
+                if (text.length() > 27 && text.length() <= 54) {
                     Message message = null;
                     String part1 = text.substring(0, 27);
                     String part2 = text.substring(28);
@@ -439,6 +441,9 @@ public class MyProtocol {
                             }
                         }
                     }
+                } else if(text.length() > 54) {
+                    // The application will support at most 2 fragments
+                    System.out.println("Message too long! Please try again");
                 } else {
                     // single message format
                     //text message format: 000ssdd0 nnqqqff 0pppppoo +29bytes
@@ -479,55 +484,18 @@ public class MyProtocol {
      * @param frag
      * @param fragFlag
      */
-    public void fragmentationFinder(byte key, Message frag, byte fragFlag) { // not yeat working for packet fragmentation
+    public void fragmentationFinder(byte key, Message frag, byte fragFlag) {
         if (fragmentationMap.containsKey(key) && fragmentationMap.get(key).get(0) != frag) {
             // we know it has two then we print them in order
             List<Message> fragments = fragmentationMap.get(key);
             if (fragFlag == 0b10) {
-                int payld = frag.getData().get(2) >> 2;
-                // Get the two fragments based on the flag
-                byte[] payload1 = Arrays.copyOfRange(fragments.get(0).getData().array(), 4, 31); // 000ssdd0 0nnsssff 0ppppp00
-                byte[] payload2 = Arrays.copyOfRange(frag.getData().array(), 4, payld);
-                String part1 = new String(payload1);
-                String part2 = new String(payload2);
-                printed.add(part1);
-                printed.add(part2);
-                // This will result in the final message with the two fragments
-                String text = part1 + part2;
-                // Check if the message has already been printed - Print it if it was not already printed
-                if( !printed.contains(text)) {
-                    System.out.println();
-                    int sender = frag.getData().array()[2] & 0b11;
-                    // Print the sender
-                    System.out.print("[" + users.get(sender) + "]: ");
-                    // Prin the text
-                    System.out.println(text);
-                    printed.add(text);
-                    // Print the username, but with no text, for the next message
-                    System.out.print("[" + users.get(client.getAddress()) + "]: ");
-                }
+                // print frag first
+                printMessage(fragments.get(0));
+                printMessage(frag);
             } else {
-                // Get the two fragments based on the flag
-                int payld = fragments.get(0).getData().get(2) >> 2;
-                byte[] payload1 = Arrays.copyOfRange(frag.getData().array(), 3, 31); // 000ssdd0 0nnsssff 0ppppp00
-                byte[] payload2 = Arrays.copyOfRange(fragments.get(0).getData().array(), 3, payld);
-                String part1 = new String(payload1);
-                String part2 = new String(payload2);
-                printed.add(part1);
-                printed.add(part2);
-                // This will result in the final message with the two fragments
-                String text = part1 + part2;
-                // Check if the message has already been printed - Print it if it was not already printed
-                if(!printed.contains(text)){
-                    System.out.println();
-                    int sender = frag.getData().array()[2] & 0b11;
-                    // Print the sender
-                    System.out.print("[" + users.get(sender) + "]: ");
-                    System.out.println(text);
-                    printed.add(text);
-
-                    System.out.print("[" + users.get(client.getAddress()) + "]: ");
-                }
+                // print fragments.get(0) first
+                printMessage(frag);
+                printMessage(fragments.get(0));
             }
         } else if (!(fragmentationMap.containsKey(key))) {
             List<Message> values = new ArrayList<>();
@@ -696,7 +664,7 @@ public class MyProtocol {
 
                                 } else {
                                     // this should mean fragmentation, it was paused as baris wanted to try something else
-                                    byte[] id = new byte[1];
+                                    byte[] id = new byte[1];//ssddqqq0
                                     id[0] = (byte) ((src << 6) | (dst << 4) | (seq << 1));
                                     fragmentationFinder(id[0], m, (byte) frag);
                                 }
